@@ -18,7 +18,6 @@ import org.junit.Test
 import org.junit.rules.TestWatcher
 import org.junit.runner.Description
 
-@OptIn(ExperimentalCoroutinesApi::class)
 class ConnectionViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
