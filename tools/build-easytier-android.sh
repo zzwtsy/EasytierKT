@@ -61,8 +61,15 @@ declare -A RUST_TARGETS=(
 
 for abi in "${ANDROID_ABIS[@]}"; do
     rust_target="${RUST_TARGETS[$abi]}"
-    if ! rustup target list --installed | grep -Fxq "${rust_target}"; then
-        rustup target add "${rust_target}"
+    installed_rust_targets="$(
+        cd "${EASYTIER_SOURCE_DIR}"
+        rustup target list --installed
+    )"
+    if ! grep -Fxq "${rust_target}" <<< "${installed_rust_targets}"; then
+        (
+            cd "${EASYTIER_SOURCE_DIR}"
+            rustup target add "${rust_target}"
+        )
     fi
 
     echo "Building EasyTier JNI and FFI for ${abi} (${rust_target})"
