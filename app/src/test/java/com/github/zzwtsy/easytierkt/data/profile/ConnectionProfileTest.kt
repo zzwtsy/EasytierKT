@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConnectionProfileTest {
+    /** 验证配置含转义字符、peer、路由和 Magic DNS 时，生成的 TOML 包含对应字段与条目。 */
     @Test
     fun buildsV264TomlWithEscapedSecretPeersRoutesAndMagicDnsFlag() {
         val profile = ConnectionProfile(
@@ -28,6 +29,7 @@ class ConnectionProfileTest {
         assertTrue(config.contains("routes = [\"192.168.10.0/24\", \"10.10.0.0/16\"]"))
     }
 
+    /** 验证默认路由被拒绝，改用合法路由后静态 IPv4 地址会写入 TOML。 */
     @Test
     fun staticAddressIsWrittenAndDefaultRouteIsRejected() {
         val profile = ConnectionProfile(
@@ -43,6 +45,7 @@ class ConnectionProfileTest {
         assertTrue(validProfile.toEasyTierToml().contains("ipv4 = \"10.20.0.7\""))
     }
 
+    /** 验证 peer 地址使用不支持的协议时，配置校验返回地址错误。 */
     @Test
     fun rejectsPeerAddressesWithoutSupportedSchemesOrHosts() {
         val profile = ConnectionProfile(

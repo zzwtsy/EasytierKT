@@ -23,6 +23,7 @@ class ConnectionViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
 
+    /** 验证仓库处于断开状态时，ViewModel 首次可观察到的状态也是断开。 */
     @Test
     fun exposesDisconnectedStateWhenTheServiceIsStopped() = runTest {
         val repository = FakeConnectionRepository()
@@ -33,6 +34,7 @@ class ConnectionViewModelTest {
         assertEquals(ConnectionStatus(), state.status)
     }
 
+    /** 验证调用连接和断开操作后，仓库替身依次进入 STARTING 与 STOPPING 阶段。 */
     @Test
     fun connectAndDisconnectAreDelegatedToTheRepository() = runTest {
         val repository = FakeConnectionRepository()

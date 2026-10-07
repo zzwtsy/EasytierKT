@@ -22,7 +22,7 @@ private val LightColorScheme = lightColorScheme(
     secondary = PurpleGrey40,
     tertiary = Pink40
 
-    /* Other default colors to override
+    /* 可在此覆盖的其他默认颜色：
     background = Color(0xFFFFFBFE),
     surface = Color(0xFFFFFBFE),
     onPrimary = Color.White,
@@ -36,7 +36,7 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun EasytierKTTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
+    // Android 12 及以上版本支持动态取色。
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {

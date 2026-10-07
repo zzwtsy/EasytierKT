@@ -14,6 +14,7 @@ class ConnectionNavigationTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
 
+    /** 验证打开设置页后触发系统返回，会回到显示“未连接”的连接页。 */
     @Test
     fun settingsCanBeOpenedAndSystemBackReturnsToConnectionStatus() {
         composeRule.onNodeWithText("打开设置").performClick()
@@ -26,6 +27,7 @@ class ConnectionNavigationTest {
         composeRule.onNodeWithText("未连接").assertIsDisplayed()
     }
 
+    /** 验证进入设置页后重建 Activity，设置页仍显示 peer 地址字段。 */
     @Test
     fun settingsDestinationSurvivesActivityRecreation() {
         composeRule.onNodeWithText("打开设置").performClick()

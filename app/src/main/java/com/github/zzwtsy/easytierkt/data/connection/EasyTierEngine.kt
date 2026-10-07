@@ -10,20 +10,30 @@ internal data class EasyTierNetworkInfo(
     val proxyRoutes: List<String>,
 )
 
+/** 将启动、TUN 接入和停止操作转发给 EasyTier JNI；原生方法返回非零值时对应操作会失败。 */
 internal object EasyTierEngine {
+    /** 解析并启动配置中的网络实例；任一步骤返回非零值都会抛出 [IllegalStateException]。 */
     fun start(config: String) {
         check(EasyTierJNI.parseConfig(config) == 0) { "EasyTier rejected the configuration" }
         check(EasyTierJNI.runNetworkInstance(config) == 0) { "EasyTier failed to start" }
     }
 
+    /** 将 VPN 文件描述符交给指定实例；原生方法返回非零值时抛出 [IllegalStateException]。 */
     fun setTunFd(instanceName: String, fd: Int) {
         check(EasyTierJNI.setTunFd(instanceName, fd) == 0) { "EasyTier failed to attach the VPN interface" }
     }
 
+    /** 停止全部 EasyTier 网络实例；原生方法返回非零值时抛出 [IllegalStateException]。 */
     fun stop() {
         check(EasyTierJNI.stopAllInstances() == 0) { "EasyTier failed to stop" }
     }
 
+    /**
+     * 读取 [instanceName] 的运行信息。
+     *
+     * 缺少运行信息或虚拟 IPv4 为 `0.0.0.0` 时返回 null。代理路由会规范化、去重并排序；
+     * peer 数量按至少包含一个连接的 peer 计算。实例报告有效的 `error_msg` 时抛出 [IllegalStateException]。
+     */
     fun networkInfo(instanceName: String): EasyTierNetworkInfo? {
         val payload = EasyTierJNI.collectNetworkInfos() ?: return null
         val info = JSONObject(payload)

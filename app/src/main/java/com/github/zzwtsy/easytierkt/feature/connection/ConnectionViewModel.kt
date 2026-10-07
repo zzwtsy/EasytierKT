@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.stateIn
 class ConnectionViewModel(
     private val repository: ConnectionRepository,
 ) : ViewModel() {
+    /** 最后一个订阅者离开 5 秒后停止状态映射的上游收集；这不会调用 disconnect() 或停止连接服务。 */
     val uiState: StateFlow<ConnectionUiState> = repository.status
         .map(::ConnectionUiState)
         .stateIn(

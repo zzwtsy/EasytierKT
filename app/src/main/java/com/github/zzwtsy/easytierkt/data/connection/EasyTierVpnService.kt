@@ -27,6 +27,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** 在前台服务中管理单个配置对应的 VPN 接口与 EasyTier 内核实例。 */
 class EasyTierVpnService : VpnService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var profileStore: EncryptedProfileStore
@@ -57,6 +58,7 @@ class EasyTierVpnService : VpnService() {
                 return START_NOT_STICKY
             }
 
+            // START_STICKY 恢复服务时可能收到 null intent；此时仍按当前保存的配置启动会话。
             null, ACTION_CONNECT -> Unit
 
             else -> {
@@ -200,6 +202,7 @@ class EasyTierVpnService : VpnService() {
         if (config.enableMagicDns) {
             builder.addDnsServer(MAGIC_DNS_SERVER)
         }
+        // 排除本应用，避免 EasyTier 自身传输流量再次进入 VPN TUN。
         builder.addDisallowedApplication(packageName)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
@@ -215,13 +218,14 @@ class EasyTierVpnService : VpnService() {
             throw error
         }
 
+        // 新接口交给内核成功后才替换并关闭旧接口；交接失败时先关闭新接口。
         val previousInterface = vpnInterface
         vpnInterface = nextInterface
         currentTunConfig = config
         try {
             previousInterface?.close()
         } catch (_: Exception) {
-            // A replaced VPN interface may already have been closed by Android.
+            // Android 可能已先关闭被替换的 VPN 接口。
         }
     }
 
@@ -264,7 +268,7 @@ class EasyTierVpnService : VpnService() {
         try {
             vpnInterface?.close()
         } catch (_: Exception) {
-            // The OS may close the descriptor first when the VPN is revoked.
+            // VPN 被撤销时，系统可能已先关闭文件描述符。
         } finally {
             vpnInterface = null
             currentTunConfig = null
@@ -285,6 +289,7 @@ class EasyTierVpnService : VpnService() {
 
     private fun createTunConfig(profile: ConnectionProfile, info: EasyTierNetworkInfo): TunConfig {
         val magicDnsRoute = if (profile.enableMagicDns) listOf("$MAGIC_DNS_SERVER/32") else emptyList()
+        // 不向 VPN 添加默认路由，避免 TUN 接管全部 IPv4 流量。
         val routes = (profile.routeCidrs() + info.proxyRoutes + magicDnsRoute)
             .filterNot { it.endsWith("/0") }
             .distinct()

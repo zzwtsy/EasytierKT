@@ -14,10 +14,12 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 
+/** 使用 Android Keystore 管理的 AES/GCM 密钥，将 JSON 配置加密后存入应用私有 SharedPreferences。 */
 class EncryptedProfileStore(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** 读取并解密配置；存储项不存在时返回默认配置，解码或解密失败会抛给调用方。 */
     fun read(): ConnectionProfile {
         val payload = preferences.getString(ENCRYPTED_PROFILE_KEY, null) ?: return ConnectionProfile()
         val decoded = Base64.decode(payload, Base64.NO_WRAP)
@@ -30,7 +32,7 @@ class EncryptedProfileStore(context: Context) {
         return json.decodeFromString(cipher.doFinal(ciphertext).decodeToString())
     }
 
-    // Keep the synchronous commit result observable so disk-write failures are not silently accepted.
+    /** 将配置序列化并加密后同步提交；加密或存储失败会以异常形式传播给调用方。 */
     @SuppressLint("UseKtx")
     fun write(profile: ConnectionProfile) {
         val cipher = Cipher.getInstance(TRANSFORMATION)

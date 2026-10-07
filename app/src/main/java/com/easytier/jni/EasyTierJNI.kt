@@ -1,6 +1,6 @@
 package com.easytier.jni
 
-/** JNI names in EasyTier v2.6.4 are bound to this package and class name. */
+/** EasyTier v2.6.4 的 JNI 绑定依赖本对象的包名和类名，R8 规则会保留该类。 */
 object EasyTierJNI {
     init {
         System.loadLibrary("easytier_ffi")

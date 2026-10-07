@@ -3,6 +3,7 @@ package com.github.zzwtsy.easytierkt.data.profile
 import java.net.URI
 import kotlinx.serialization.Serializable
 
+/** 单个 EasyTier 网络的可编辑配置；peer 地址和路由字段支持逗号或换行分隔。 */
 @Serializable
 data class ConnectionProfile(
     val networkName: String = "",
@@ -13,6 +14,13 @@ data class ConnectionProfile(
     val routes: String = "",
     val enableMagicDns: Boolean = false,
 ) {
+    /**
+     * 按顺序校验网络名、密钥、静态 IPv4、peer URI 和 IPv4 路由，并返回首个错误。
+     * 网络名非空白且长度不超过 128，密钥可为空且长度不超过 1024（长度按 Kotlin `String.length` 计算）；两者均拒绝控制字符。
+     * 关闭 DHCP 时静态地址必须是非 `0.0.0.0` IPv4。peer URI 必须有主机，仅接受 `tcp`、`udp`、`ws`、`wss`、`quic` 协议；
+     * 端口可省略或为 1 到 65535，且 URI 不得含用户信息或片段。路由必须是非 `0.0.0.0` IPv4 CIDR，前缀范围为 1 到 32。
+     * 所有字段有效时返回 null。
+     */
     fun validationError(): ProfileValidationError? {
         if (networkName.isBlank() || networkName.length > MAX_NETWORK_NAME_LENGTH || networkName.any(Char::isISOControl)) {
             return ProfileValidationError.INVALID_NETWORK_NAME
@@ -37,6 +45,11 @@ data class ConnectionProfile(
         return null
     }
 
+    /**
+     * 生成 EasyTier v2.6.4 使用的 TOML 配置。
+     *
+     * 调用前必须通过 [validationError] 校验，否则抛出 [IllegalArgumentException]。
+     */
     fun toEasyTierToml(instanceName: String = INSTANCE_NAME): String {
         require(validationError() == null) { "Connection profile is invalid" }
 
@@ -73,8 +86,10 @@ data class ConnectionProfile(
         }
     }
 
+    /** 返回可解析路由的 CIDR 列表，去重并保留首次出现的顺序。 */
     fun routeCidrs(): List<String> = routes.entries().mapNotNull(::parseRoute).distinct()
 
+    /** 返回去除空白后的非空 peer 条目；地址格式由 [validationError] 校验。 */
     fun peerAddressList(): List<String> = peerAddresses.entries()
 
     private fun String.entries(): List<String> =

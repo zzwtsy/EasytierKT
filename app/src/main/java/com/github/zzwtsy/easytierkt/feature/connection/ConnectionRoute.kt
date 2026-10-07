@@ -13,6 +13,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
 import com.github.zzwtsy.easytierkt.data.connection.ConnectionRepository
 
+/** 连接页的装配层，负责创建 ViewModel、处理系统 VPN 授权并连接 Screen 回调。 */
 @Composable
 internal fun ConnectionRoute(
     repository: ConnectionRepository,
