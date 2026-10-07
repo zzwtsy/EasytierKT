@@ -14,7 +14,6 @@ import com.github.zzwtsy.easytierkt.MainActivity
 import com.github.zzwtsy.easytierkt.R
 import com.github.zzwtsy.easytierkt.data.profile.ConnectionProfile
 import com.github.zzwtsy.easytierkt.data.profile.EncryptedProfileStore
-import com.github.zzwtsy.easytierkt.data.profile.ProfileValidationError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +25,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 
 /** 在前台服务中管理单个配置对应的 VPN 接口与 EasyTier 内核实例。 */
 class EasyTierVpnService : VpnService() {
@@ -131,7 +131,7 @@ class EasyTierVpnService : VpnService() {
                 }
                 if (networkInfo != null) break
                 if (attempt < STARTUP_INFO_ATTEMPTS - 1) {
-                    delay(STARTUP_INFO_INTERVAL_MS)
+                    delay(STARTUP_INFO_INTERVAL_MS.milliseconds)
                 }
             }
 
@@ -159,7 +159,7 @@ class EasyTierVpnService : VpnService() {
 
     private suspend fun monitorNetwork(profile: ConnectionProfile) {
         while (serviceScope.isActive && sessionActive) {
-            delay(NETWORK_INFO_INTERVAL_MS)
+            delay(NETWORK_INFO_INTERVAL_MS.milliseconds)
             val info = try {
                 withContext(Dispatchers.IO) {
                     EasyTierEngine.networkInfo(ConnectionProfile.INSTANCE_NAME)
