@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">EasytierKT</string>
+    <string name="connection_title">EasyTier</string>
+    <string name="connection_status_label">连接状态</string>
+    <string name="connection_unavailable">尚未接入 EasyTier 内核</string>
+    <string name="connection_unavailable_description">连接状态会在内核接入后显示。</string>
+    <string name="open_settings">打开设置</string>
+    <string name="settings_title">设置</string>
+    <string name="settings_empty">暂无设置项</string>
+    <string name="back_to_home">返回首页</string>
+</resources>
