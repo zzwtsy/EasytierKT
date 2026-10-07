@@ -8,8 +8,9 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import com.github.zzwtsy.easytierkt.data.connection.ConnectionRepository
+import com.github.zzwtsy.easytierkt.data.profile.ConnectionProfileRepository
 import com.github.zzwtsy.easytierkt.feature.connection.ConnectionRoute
-import com.github.zzwtsy.easytierkt.feature.settings.SettingsScreen
+import com.github.zzwtsy.easytierkt.feature.settings.SettingsRoute
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -19,7 +20,10 @@ private data object ConnectionKey : NavKey
 private data object SettingsKey : NavKey
 
 @Composable
-internal fun EasytierApp(connectionRepository: ConnectionRepository) {
+internal fun EasytierApp(
+    connectionRepository: ConnectionRepository,
+    profileRepository: ConnectionProfileRepository,
+) {
     val backStack = rememberNavBackStack(ConnectionKey)
 
     NavDisplay(
@@ -37,7 +41,10 @@ internal fun EasytierApp(connectionRepository: ConnectionRepository) {
                 )
             }
             entry<SettingsKey> {
-                SettingsScreen(onBack = { backStack.removeLastOrNull() })
+                SettingsRoute(
+                    repository = profileRepository,
+                    onBack = { backStack.removeLastOrNull() },
+                )
             }
         },
     )

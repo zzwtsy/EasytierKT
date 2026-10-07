@@ -10,8 +10,9 @@ permissions:
 
 jobs:
   verify:
-    name: Lint, test, and assemble
+    name: Build native libraries, lint, test, and assemble
     runs-on: ubuntu-latest
+    timeout-minutes: 90
 
     steps:
       - name: Check out repository
@@ -26,8 +27,27 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK 37
-        run: sdkmanager "platforms;android-37" "build-tools;37.0.0"
+      - name: Install Android SDK 37 and NDK
+        run: sdkmanager "platforms;android-37" "build-tools;37.0.0" "ndk;27.2.12479018"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check out pinned EasyTier source
+        uses: actions/checkout@v4
+        with:
+          repository: EasyTier/EasyTier
+          ref: 8428a89d2dabc94c97d370ec607c6ca142473626
+          path: build/easytier-v2.6.4
+          persist-credentials: false
+
+      - name: Cache EasyTier Cargo builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: build/easytier-v2.6.4 -> target
+
+      - name: Build EasyTier JNI libraries for all Android ABIs
+        run: bash tools/build-easytier-android.sh
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4

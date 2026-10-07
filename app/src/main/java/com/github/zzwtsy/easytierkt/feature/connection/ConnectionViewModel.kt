@@ -6,22 +6,27 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.github.zzwtsy.easytierkt.data.connection.ConnectionRepository
-import com.github.zzwtsy.easytierkt.data.connection.ConnectionStatus
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 class ConnectionViewModel(
-    repository: ConnectionRepository,
+    private val repository: ConnectionRepository,
 ) : ViewModel() {
     val uiState: StateFlow<ConnectionUiState> = repository.status
         .map(::ConnectionUiState)
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000),
-            initialValue = ConnectionUiState(status = ConnectionStatus.Unavailable),
+            initialValue = ConnectionUiState(),
         )
+
+    fun connect() = repository.connect()
+
+    fun disconnect() = repository.disconnect()
+
+    fun reportVpnPermissionDenied() = repository.reportVpnPermissionDenied()
 
     companion object {
         fun factory(repository: ConnectionRepository): ViewModelProvider.Factory = viewModelFactory {

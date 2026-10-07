@@ -9,7 +9,15 @@
         <include .../>
         <exclude .../>
         -->
+        <exclude
+            domain="sharedpref"
+            path="easytier_profile.xml" />
     </cloud-backup>
+    <device-transfer>
+        <exclude
+            domain="sharedpref"
+            path="easytier_profile.xml" />
+    </device-transfer>
     <!--
     <device-transfer>
         <include .../>

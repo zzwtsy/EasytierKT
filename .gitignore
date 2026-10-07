@@ -16,3 +16,4 @@
 .cxx
 local.properties
 /tmp
+app/src/main/jniLibs/**/*.so

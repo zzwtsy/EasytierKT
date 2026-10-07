@@ -1,10 +1,13 @@
 package com.github.zzwtsy.easytierkt.feature.connection
 
 import com.github.zzwtsy.easytierkt.data.connection.ConnectionStatus
-import com.github.zzwtsy.easytierkt.data.connection.UnavailableConnectionRepository
+import com.github.zzwtsy.easytierkt.data.connection.ConnectionPhase
+import com.github.zzwtsy.easytierkt.data.connection.ConnectionRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -21,21 +24,45 @@ class ConnectionViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     @Test
-    fun exposesUnavailableStateUntilConnectionBackendIsAdded() = runTest {
-        val viewModel = ConnectionViewModel(UnavailableConnectionRepository())
+    fun exposesDisconnectedStateWhenTheServiceIsStopped() = runTest {
+        val repository = FakeConnectionRepository()
+        val viewModel = ConnectionViewModel(repository)
 
         val state = viewModel.uiState.first()
 
-        assertEquals(ConnectionStatus.Unavailable, state.status)
+        assertEquals(ConnectionStatus(), state.status)
     }
 
     @Test
-    fun unavailableRepositoryEmitsUnavailableStatus() = runTest {
-        val status = UnavailableConnectionRepository().status.first()
+    fun connectAndDisconnectAreDelegatedToTheRepository() = runTest {
+        val repository = FakeConnectionRepository()
+        val viewModel = ConnectionViewModel(repository)
 
-        assertEquals(ConnectionStatus.Unavailable, status)
+        viewModel.connect()
+        assertEquals(ConnectionPhase.STARTING, repository.status.value.phase)
+
+        viewModel.disconnect()
+        assertEquals(ConnectionPhase.STOPPING, repository.status.value.phase)
     }
 }
+
+private class FakeConnectionRepository : ConnectionRepository {
+    private val mutableStatus = MutableStateFlow(ConnectionStatus())
+    override val status: StateFlow<ConnectionStatus> = mutableStatus
+
+    override fun connect() {
+        mutableStatus.value = ConnectionStatus(phase = ConnectionPhase.STARTING)
+    }
+
+    override fun disconnect() {
+        mutableStatus.value = ConnectionStatus(phase = ConnectionPhase.STOPPING)
+    }
+
+    override fun reportVpnPermissionDenied() {
+        mutableStatus.value = ConnectionStatus(phase = ConnectionPhase.ERROR)
+    }
+}
+
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainDispatcherRule : TestWatcher() {

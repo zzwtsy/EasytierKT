@@ -17,13 +17,13 @@ class ConnectionNavigationTest {
     @Test
     fun settingsCanBeOpenedAndSystemBackReturnsToConnectionStatus() {
         composeRule.onNodeWithText("打开设置").performClick()
-        composeRule.onNodeWithText("暂无设置项").assertIsDisplayed()
+        composeRule.onNodeWithText("网络名").assertIsDisplayed()
 
         composeRule.activityRule.scenario.onActivity { activity ->
             activity.onBackPressedDispatcher.onBackPressed()
         }
 
-        composeRule.onNodeWithText("尚未接入 EasyTier 内核").assertIsDisplayed()
+        composeRule.onNodeWithText("未连接").assertIsDisplayed()
     }
 
     @Test
@@ -31,6 +31,6 @@ class ConnectionNavigationTest {
         composeRule.onNodeWithText("打开设置").performClick()
         composeRule.activityRule.scenario.recreate()
 
-        composeRule.onNodeWithText("暂无设置项").assertIsDisplayed()
+        composeRule.onNodeWithText("对等节点地址").assertIsDisplayed()
     }
 }

@@ -10,3 +10,6 @@
 #-keepclassmembers class fqcn.of.javascript.interface.for.webview {
 #   public *;
 #}
+
+# EasyTier v2.6.4 resolves JNI entry points from this exact class name.
+-keep class com.easytier.jni.EasyTierJNI { *; }
