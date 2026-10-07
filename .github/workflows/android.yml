@@ -30,11 +30,22 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+      - name: Set up Android CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/android-cli"
+          curl -fsSL --proto '=https' --tlsv1.2 \
+            https://dl.google.com/android/cli/latest/linux_x86_64/android \
+            -o "$RUNNER_TEMP/android-cli/android"
+          chmod +x "$RUNNER_TEMP/android-cli/android"
+          echo "$RUNNER_TEMP/android-cli" >> "$GITHUB_PATH"
 
       - name: Install Android SDK 37 and NDK
-        run: sdkmanager "platforms;android-37" "build-tools;37.0.0" "ndk;30.0.16248370" --channel=3
+        run: >-
+          android --sdk="$ANDROID_HOME" sdk install --canary
+          platform-tools
+          platforms/android-37
+          build-tools/37.0.0
+          ndk/30.0.16248370
 
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
