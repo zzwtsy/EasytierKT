@@ -11,6 +11,16 @@
 
 ## 本地命令
 
+原生库构建还需要宿主机上的 Protocol Buffers 编译器 `protoc`。Ubuntu / Debian / WSL2 Ubuntu 可运行以下命令安装：
+
+```bash
+sudo apt-get update
+sudo apt-get install --no-install-recommends --yes protobuf-compiler
+protoc --version
+```
+
+其他系统需安装对应的宿主机版本，并将其加入 `PATH`，或通过 `PROTOC` 环境变量指定可执行文件路径。脚本在下载源码前检查该工具并输出版本；GitHub Actions 会在原生库构建前安装它。
+
 构建 APK 前先生成 EasyTier v2.6.4 JNI 与 FFI 原生库。需要 Git、Rust stable、Android NDK `27.2.12479018`；脚本会安装固定版本的 `cargo-ndk 3.5.4` 和四个 Android Rust targets。Linux / macOS：
 
 ```bash

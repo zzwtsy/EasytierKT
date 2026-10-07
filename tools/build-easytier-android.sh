@@ -19,6 +19,11 @@ if ! command -v rustup >/dev/null 2>&1; then
     echo "rustup is required to install Android Rust targets." >&2
     exit 1
 fi
+if ! command -v "${PROTOC:-protoc}" >/dev/null 2>&1; then
+    echo "protoc is required to generate Rust protobuf code. Install protobuf-compiler or set PROTOC to its executable path." >&2
+    exit 1
+fi
+"${PROTOC:-protoc}" --version
 
 if [ -e "${EASYTIER_SOURCE_DIR}" ] && [ ! -d "${EASYTIER_SOURCE_DIR}/.git" ]; then
     echo "${EASYTIER_SOURCE_DIR} exists but is not an EasyTier Git checkout." >&2

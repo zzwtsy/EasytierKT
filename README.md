@@ -7,6 +7,7 @@ EasytierKT 是基于 Kotlin、Jetpack Compose、Material 3 和 Navigation 3 的 
 - JDK 25（Gradle Daemon 工具链由 `gradle/gradle-daemon-jvm.properties` 固定）
 - Android SDK Platform 37
 - Rust stable、Android NDK `27.2.12479018`（用于构建 EasyTier JNI/FFI 原生库）
+- Protocol Buffers 编译器 `protoc`（在宿主机上生成原生库所需的 Rust protobuf 代码，安装方式见 [测试说明](docs/testing.md#本地命令)）
 - 使用仓库中的 Gradle Wrapper，不单独安装或切换 Gradle 版本
 
 ## 构建 EasyTier 原生库
