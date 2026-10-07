@@ -65,10 +65,11 @@ class SettingsViewModel(
     }
 
     companion object {
-        fun factory(repository: ConnectionProfileRepository): ViewModelProvider.Factory = viewModelFactory {
-            initializer {
-                SettingsViewModel(repository)
+        fun factory(repository: ConnectionProfileRepository): ViewModelProvider.Factory =
+            viewModelFactory {
+                initializer {
+                    SettingsViewModel(repository)
+                }
             }
-        }
     }
 }

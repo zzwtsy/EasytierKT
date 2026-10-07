@@ -19,7 +19,10 @@ internal object EasyTierEngine {
     }
 
     /** 将 VPN 文件描述符交给指定实例；原生方法返回非零值时抛出 [IllegalStateException]。 */
-    fun setTunFd(instanceName: String, fd: Int) {
+    fun setTunFd(
+        instanceName: String,
+        fd: Int,
+    ) {
         check(EasyTierJNI.setTunFd(instanceName, fd) == 0) { "EasyTier failed to attach the VPN interface" }
     }
 
@@ -36,10 +39,11 @@ internal object EasyTierEngine {
      */
     fun networkInfo(instanceName: String): EasyTierNetworkInfo? {
         val payload = EasyTierJNI.collectNetworkInfos() ?: return null
-        val info = JSONObject(payload)
-            .optJSONObject("map")
-            ?.optJSONObject(instanceName)
-            ?: return null
+        val info =
+            JSONObject(payload)
+                .optJSONObject("map")
+                ?.optJSONObject(instanceName)
+                ?: return null
         if (!info.optBoolean("running", true)) return null
 
         val error = info.optString("error_msg").takeIf { it.isNotBlank() && it != "null" }
@@ -64,8 +68,10 @@ internal object EasyTierEngine {
 
         return EasyTierNetworkInfo(
             virtualIpv4 = address,
-            networkLength = virtualIpv4.optInt("network_length", DEFAULT_NETWORK_LENGTH)
-                .takeIf { it in 1..32 } ?: DEFAULT_NETWORK_LENGTH,
+            networkLength =
+                virtualIpv4
+                    .optInt("network_length", DEFAULT_NETWORK_LENGTH)
+                    .takeIf { it in 1..32 } ?: DEFAULT_NETWORK_LENGTH,
             peerCount = connectedPeerCount(info),
             proxyRoutes = routes.distinct().sorted(),
         )
@@ -78,14 +84,15 @@ internal object EasyTierEngine {
         }
     }
 
-    private fun parseIpv4(value: Any?): String? = when (value) {
-        is JSONObject -> parseIpv4(value.opt("address"))
-        is Number -> value.toLong().toIpv4()
-        is String -> {
-            value.toLongOrNull()?.toIpv4() ?: value.takeIf(::isIpv4Address)
+    private fun parseIpv4(value: Any?): String? =
+        when (value) {
+            is JSONObject -> parseIpv4(value.opt("address"))
+            is Number -> value.toLong().toIpv4()
+            is String -> {
+                value.toLongOrNull()?.toIpv4() ?: value.takeIf(::isIpv4Address)
+            }
+            else -> null
         }
-        else -> null
-    }
 
     private fun Long.toIpv4(): String? {
         val address = this and IPV4_MASK
@@ -103,9 +110,10 @@ internal object EasyTierEngine {
 
     private fun isIpv4Address(value: String): Boolean {
         val parts = value.split('.')
-        return parts.size == 4 && parts.all { part ->
-            part.isNotEmpty() && part.all(Char::isDigit) && part.toIntOrNull()?.let { it in 0..255 } == true
-        }
+        return parts.size == 4 &&
+            parts.all { part ->
+                part.isNotEmpty() && part.all(Char::isDigit) && part.toIntOrNull()?.let { it in 0..255 } == true
+            }
     }
 
     private const val DEFAULT_NETWORK_LENGTH = 24

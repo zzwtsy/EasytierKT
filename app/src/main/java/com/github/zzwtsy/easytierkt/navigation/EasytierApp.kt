@@ -29,23 +29,25 @@ internal fun EasytierApp(
     NavDisplay(
         backStack = backStack,
         onBack = { backStack.removeLastOrNull() },
-        entryDecorators = listOf(
-            rememberSaveableStateHolderNavEntryDecorator<NavKey>(),
-            rememberViewModelStoreNavEntryDecorator(),
-        ),
-        entryProvider = entryProvider {
-            entry<ConnectionKey> {
-                ConnectionRoute(
-                    repository = connectionRepository,
-                    onOpenSettings = { backStack.add(SettingsKey) },
-                )
-            }
-            entry<SettingsKey> {
-                SettingsRoute(
-                    repository = profileRepository,
-                    onBack = { backStack.removeLastOrNull() },
-                )
-            }
-        },
+        entryDecorators =
+            listOf(
+                rememberSaveableStateHolderNavEntryDecorator<NavKey>(),
+                rememberViewModelStoreNavEntryDecorator(),
+            ),
+        entryProvider =
+            entryProvider {
+                entry<ConnectionKey> {
+                    ConnectionRoute(
+                        repository = connectionRepository,
+                        onOpenSettings = { backStack.add(SettingsKey) },
+                    )
+                }
+                entry<SettingsKey> {
+                    SettingsRoute(
+                        repository = profileRepository,
+                        onBack = { backStack.removeLastOrNull() },
+                    )
+                }
+            },
     )
 }

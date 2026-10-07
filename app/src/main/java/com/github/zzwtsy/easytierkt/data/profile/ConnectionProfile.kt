@@ -1,7 +1,7 @@
 package com.github.zzwtsy.easytierkt.data.profile
 
-import java.net.URI
 import kotlinx.serialization.Serializable
+import java.net.URI
 
 /** 单个 EasyTier 网络的可编辑配置；peer 地址和路由字段支持逗号或换行分隔。 */
 @Serializable
@@ -110,12 +110,13 @@ data class ConnectionProfile(
         }.getOrDefault(false)
 
     private fun tomlString(value: String): String =
-        "\"" + value
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t") + "\""
+        "\"" +
+            value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t") + "\""
 
     private fun parseRoute(value: String): String? {
         val parts = value.split('/')
@@ -127,11 +128,13 @@ data class ConnectionProfile(
 
     private fun isIpv4Address(value: String): Boolean {
         val parts = value.split('.')
-        return value != "0.0.0.0" && parts.size == 4 && parts.all { part ->
-            part.isNotEmpty() &&
-                part.all(Char::isDigit) &&
-                part.toIntOrNull()?.let { it in 0..255 } == true
-        }
+        return value != "0.0.0.0" &&
+            parts.size == 4 &&
+            parts.all { part ->
+                part.isNotEmpty() &&
+                    part.all(Char::isDigit) &&
+                    part.toIntOrNull()?.let { it in 0..255 } == true
+            }
     }
 
     companion object {

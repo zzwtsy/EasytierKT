@@ -2,7 +2,6 @@ package com.github.zzwtsy.easytierkt.data.connection
 
 import android.content.Context
 import android.content.Intent
-import android.net.VpnService
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,15 +15,18 @@ internal object ConnectionRuntime {
     }
 }
 
-class AndroidConnectionRepository(context: Context) : ConnectionRepository {
+class AndroidConnectionRepository(
+    context: Context,
+) : ConnectionRepository {
     private val appContext = context.applicationContext
 
     override val status = ConnectionRuntime.status
 
     override fun connect() {
         ConnectionRuntime.update(ConnectionStatus(phase = ConnectionPhase.STARTING))
-        val intent = Intent(appContext, EasyTierVpnService::class.java)
-            .setAction(EasyTierVpnService.ACTION_CONNECT)
+        val intent =
+            Intent(appContext, EasyTierVpnService::class.java)
+                .setAction(EasyTierVpnService.ACTION_CONNECT)
 
         try {
             ContextCompat.startForegroundService(appContext, intent)
@@ -37,8 +39,9 @@ class AndroidConnectionRepository(context: Context) : ConnectionRepository {
 
     override fun disconnect() {
         ConnectionRuntime.update(status.value.copy(phase = ConnectionPhase.STOPPING, error = null))
-        val intent = Intent(appContext, EasyTierVpnService::class.java)
-            .setAction(EasyTierVpnService.ACTION_DISCONNECT)
+        val intent =
+            Intent(appContext, EasyTierVpnService::class.java)
+                .setAction(EasyTierVpnService.ACTION_DISCONNECT)
         try {
             appContext.startService(intent)
         } catch (_: SecurityException) {

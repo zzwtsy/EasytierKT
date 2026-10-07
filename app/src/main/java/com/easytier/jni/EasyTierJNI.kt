@@ -14,7 +14,10 @@ object EasyTierJNI {
     external fun runNetworkInstance(config: String): Int
 
     @JvmStatic
-    external fun setTunFd(instanceName: String, fd: Int): Int
+    external fun setTunFd(
+        instanceName: String,
+        fd: Int,
+    ): Int
 
     @JvmStatic
     external fun retainNetworkInstance(instanceNames: Array<String>?): Int

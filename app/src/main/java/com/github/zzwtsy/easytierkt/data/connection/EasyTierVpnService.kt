@@ -47,7 +47,11 @@ class EasyTierVpnService : VpnService() {
         createNotificationChannel()
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         when (intent?.action) {
             ACTION_DISCONNECT -> {
                 serviceScope.launch {
@@ -98,14 +102,15 @@ class EasyTierVpnService : VpnService() {
     }
 
     private suspend fun startSession() {
-        val profile = try {
-            withContext(Dispatchers.IO) { profileStore.read() }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            fail(ConnectionError.PROFILE_READ_FAILED)
-            return
-        }
+        val profile =
+            try {
+                withContext(Dispatchers.IO) { profileStore.read() }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                fail(ConnectionError.PROFILE_READ_FAILED)
+                return
+            }
 
         if (profile.validationError() != null) {
             fail(ConnectionError.PROFILE_INVALID)
@@ -126,19 +131,21 @@ class EasyTierVpnService : VpnService() {
 
             var networkInfo: EasyTierNetworkInfo? = null
             for (attempt in 0 until STARTUP_INFO_ATTEMPTS) {
-                networkInfo = withContext(Dispatchers.IO) {
-                    EasyTierEngine.networkInfo(ConnectionProfile.INSTANCE_NAME)
-                }
+                networkInfo =
+                    withContext(Dispatchers.IO) {
+                        EasyTierEngine.networkInfo(ConnectionProfile.INSTANCE_NAME)
+                    }
                 if (networkInfo != null) break
                 if (attempt < STARTUP_INFO_ATTEMPTS - 1) {
                     delay(STARTUP_INFO_INTERVAL_MS.milliseconds)
                 }
             }
 
-            val assignedInfo = networkInfo ?: run {
-                fail(ConnectionError.START_FAILED)
-                return
-            }
+            val assignedInfo =
+                networkInfo ?: run {
+                    fail(ConnectionError.START_FAILED)
+                    return
+                }
 
             val desiredConfig = createTunConfig(profile, assignedInfo)
             applyTunConfig(desiredConfig)
@@ -160,16 +167,17 @@ class EasyTierVpnService : VpnService() {
     private suspend fun monitorNetwork(profile: ConnectionProfile) {
         while (serviceScope.isActive && sessionActive) {
             delay(NETWORK_INFO_INTERVAL_MS.milliseconds)
-            val info = try {
-                withContext(Dispatchers.IO) {
-                    EasyTierEngine.networkInfo(ConnectionProfile.INSTANCE_NAME)
+            val info =
+                try {
+                    withContext(Dispatchers.IO) {
+                        EasyTierEngine.networkInfo(ConnectionProfile.INSTANCE_NAME)
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Log.w(TAG, "Failed to read EasyTier network status (${error.javaClass.simpleName})")
+                    continue
                 }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                Log.w(TAG, "Failed to read EasyTier network status (${error.javaClass.simpleName})")
-                continue
-            }
 
             if (info == null) continue
             val desiredConfig = createTunConfig(profile, info)
@@ -189,9 +197,10 @@ class EasyTierVpnService : VpnService() {
     }
 
     private suspend fun applyTunConfig(config: TunConfig) {
-        val builder = Builder()
-            .setSession(getString(R.string.notification_channel_name))
-            .setMtu(VPN_MTU)
+        val builder =
+            Builder()
+                .setSession(getString(R.string.notification_channel_name))
+                .setMtu(VPN_MTU)
 
         builder.addAddress(config.ipv4Address, config.networkLength)
         config.routes.forEach { route ->
@@ -287,13 +296,17 @@ class EasyTierVpnService : VpnService() {
         )
     }
 
-    private fun createTunConfig(profile: ConnectionProfile, info: EasyTierNetworkInfo): TunConfig {
+    private fun createTunConfig(
+        profile: ConnectionProfile,
+        info: EasyTierNetworkInfo,
+    ): TunConfig {
         val magicDnsRoute = if (profile.enableMagicDns) listOf("$MAGIC_DNS_SERVER/32") else emptyList()
         // 不向 VPN 添加默认路由，避免 TUN 接管全部 IPv4 流量。
-        val routes = (profile.routeCidrs() + info.proxyRoutes + magicDnsRoute)
-            .filterNot { it.endsWith("/0") }
-            .distinct()
-            .sorted()
+        val routes =
+            (profile.routeCidrs() + info.proxyRoutes + magicDnsRoute)
+                .filterNot { it.endsWith("/0") }
+                .distinct()
+                .sorted()
 
         return TunConfig(
             ipv4Address = info.virtualIpv4,
@@ -303,49 +316,50 @@ class EasyTierVpnService : VpnService() {
         )
     }
 
-    private fun promoteToForeground(): Boolean = try {
-        val notification = buildNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED,
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+    private fun promoteToForeground(): Boolean =
+        try {
+            val notification = buildNotification()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED,
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            true
+        } catch (_: SecurityException) {
+            false
+        } catch (_: IllegalArgumentException) {
+            false
         }
-        true
-    } catch (_: SecurityException) {
-        false
-    } catch (_: IllegalArgumentException) {
-        false
-    }
 
-    private fun buildNotification() = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-        .setSmallIcon(R.mipmap.ic_launcher)
-        .setContentTitle(getString(R.string.notification_channel_name))
-        .setContentText(getString(R.string.notification_running))
-        .setContentIntent(
-            PendingIntent.getActivity(
-                this,
-                OPEN_ACTIVITY_REQUEST_CODE,
-                Intent(this, MainActivity::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            ),
-        )
-        .setOngoing(true)
-        .setCategory(NotificationCompat.CATEGORY_SERVICE)
-        .addAction(
-            0,
-            getString(R.string.connection_disconnect),
-            PendingIntent.getService(
-                this,
-                DISCONNECT_REQUEST_CODE,
-                Intent(this, EasyTierVpnService::class.java).setAction(ACTION_DISCONNECT),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            ),
-        )
-        .build()
+    private fun buildNotification() =
+        NotificationCompat
+            .Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(getString(R.string.notification_channel_name))
+            .setContentText(getString(R.string.notification_running))
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    this,
+                    OPEN_ACTIVITY_REQUEST_CODE,
+                    Intent(this, MainActivity::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            ).setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .addAction(
+                0,
+                getString(R.string.connection_disconnect),
+                PendingIntent.getService(
+                    this,
+                    DISCONNECT_REQUEST_CODE,
+                    Intent(this, EasyTierVpnService::class.java).setAction(ACTION_DISCONNECT),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            ).build()
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

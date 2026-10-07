@@ -12,7 +12,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -38,14 +37,18 @@ internal fun ConnectionScreen(
 
     Scaffold(modifier = modifier.fillMaxSize()) { contentPadding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(contentPadding)
-                .padding(24.dp),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(contentPadding)
+                    .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            Text(text = stringResource(R.string.connection_title), style = androidx.compose.material3.MaterialTheme.typography.headlineMedium)
+            Text(
+                text = stringResource(R.string.connection_title),
+                style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
+            )
             Text(text = stringResource(R.string.connection_setup_hint))
 
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -59,23 +62,30 @@ internal fun ConnectionScreen(
                     )
                     StatusLine(
                         label = stringResource(R.string.connection_vpn_service_label),
-                        value = stringResource(
-                            if (status.vpnServiceRunning) R.string.connection_component_running else R.string.connection_component_stopped,
-                        ),
+                        value =
+                            stringResource(
+                                if (status.vpnServiceRunning) {
+                                    R.string.connection_component_running
+                                } else {
+                                    R.string.connection_component_stopped
+                                },
+                            ),
                     )
                     StatusLine(
                         label = stringResource(R.string.connection_kernel_label),
-                        value = stringResource(
-                            if (status.kernelRunning) R.string.connection_component_running else R.string.connection_component_stopped,
-                        ),
+                        value =
+                            stringResource(
+                                if (status.kernelRunning) R.string.connection_component_running else R.string.connection_component_stopped,
+                            ),
                     )
                     StatusLine(
                         label = stringResource(R.string.connection_peers_label),
-                        value = when {
-                            status.peerCount == null -> stringResource(R.string.connection_peers_waiting)
-                            status.peerCount == 1 -> stringResource(R.string.connection_peers_one)
-                            else -> stringResource(R.string.connection_peers_count, status.peerCount)
-                        },
+                        value =
+                            when {
+                                status.peerCount == null -> stringResource(R.string.connection_peers_waiting)
+                                status.peerCount == 1 -> stringResource(R.string.connection_peers_one)
+                                else -> stringResource(R.string.connection_peers_count, status.peerCount)
+                            },
                     )
                     status.virtualIpv4?.let { address ->
                         StatusLine(
@@ -98,14 +108,15 @@ internal fun ConnectionScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    text = stringResource(
-                        when {
-                            isBusy -> R.string.connection_disconnecting
-                            canDisconnect && status.phase == ConnectionPhase.STARTING -> R.string.connection_cancel
-                            canDisconnect -> R.string.connection_disconnect
-                            else -> R.string.connection_connect
-                        },
-                    ),
+                    text =
+                        stringResource(
+                            when {
+                                isBusy -> R.string.connection_disconnecting
+                                canDisconnect && status.phase == ConnectionPhase.STARTING -> R.string.connection_cancel
+                                canDisconnect -> R.string.connection_disconnect
+                                else -> R.string.connection_connect
+                            },
+                        ),
                 )
             }
 
@@ -117,7 +128,10 @@ internal fun ConnectionScreen(
 }
 
 @Composable
-private fun StatusLine(label: String, value: String) {
+private fun StatusLine(
+    label: String,
+    value: String,
+) {
     androidx.compose.foundation.layout.Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -127,21 +141,23 @@ private fun StatusLine(label: String, value: String) {
     }
 }
 
-private fun statusTitle(phase: ConnectionPhase): Int = when (phase) {
-    ConnectionPhase.DISCONNECTED -> R.string.connection_disconnected
-    ConnectionPhase.STARTING -> R.string.connection_starting
-    ConnectionPhase.STOPPING -> R.string.connection_disconnecting
-    ConnectionPhase.CONNECTED -> R.string.connection_connected
-    ConnectionPhase.ERROR -> R.string.connection_failed
-}
+private fun statusTitle(phase: ConnectionPhase): Int =
+    when (phase) {
+        ConnectionPhase.DISCONNECTED -> R.string.connection_disconnected
+        ConnectionPhase.STARTING -> R.string.connection_starting
+        ConnectionPhase.STOPPING -> R.string.connection_disconnecting
+        ConnectionPhase.CONNECTED -> R.string.connection_connected
+        ConnectionPhase.ERROR -> R.string.connection_failed
+    }
 
-private fun errorMessage(error: ConnectionError): Int = when (error) {
-    ConnectionError.VPN_PERMISSION_DENIED -> R.string.error_vpn_permission_denied
-    ConnectionError.PROFILE_READ_FAILED -> R.string.error_profile_read
-    ConnectionError.PROFILE_INVALID -> R.string.error_profile_invalid
-    ConnectionError.NATIVE_LIBRARY_UNAVAILABLE -> R.string.error_native_library
-    ConnectionError.START_FAILED -> R.string.error_connection_start
-}
+private fun errorMessage(error: ConnectionError): Int =
+    when (error) {
+        ConnectionError.VPN_PERMISSION_DENIED -> R.string.error_vpn_permission_denied
+        ConnectionError.PROFILE_READ_FAILED -> R.string.error_profile_read
+        ConnectionError.PROFILE_INVALID -> R.string.error_profile_invalid
+        ConnectionError.NATIVE_LIBRARY_UNAVAILABLE -> R.string.error_native_library
+        ConnectionError.START_FAILED -> R.string.error_connection_start
+    }
 
 @Preview(showBackground = true)
 @Composable

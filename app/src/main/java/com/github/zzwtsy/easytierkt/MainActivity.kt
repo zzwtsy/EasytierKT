@@ -1,10 +1,10 @@
 package com.github.zzwtsy.easytierkt
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import android.content.Context
 import com.github.zzwtsy.easytierkt.data.connection.AndroidConnectionRepository
 import com.github.zzwtsy.easytierkt.data.profile.ConnectionProfileRepository
 import com.github.zzwtsy.easytierkt.data.profile.EncryptedProfileStore
@@ -28,7 +28,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private class AppContainer(context: Context) {
+private class AppContainer(
+    context: Context,
+) {
     private val profileStore = EncryptedProfileStore(context)
 
     val connectionRepository = AndroidConnectionRepository(context)

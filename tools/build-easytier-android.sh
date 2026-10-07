@@ -42,8 +42,13 @@ if [ "${ACTUAL_COMMIT}" != "${EASYTIER_COMMIT}" ]; then
     exit 1
 fi
 
-if ! cargo ndk --version >/dev/null 2>&1; then
-    cargo install --locked --version 3.5.4 cargo-ndk
+CARGO_NDK_VERSION="4.1.2"
+INSTALLED_CARGO_NDK_VERSION=""
+if command -v cargo-ndk >/dev/null 2>&1; then
+    INSTALLED_CARGO_NDK_VERSION="$(cargo ndk --version 2>/dev/null | awk '{print $2}' || true)"
+fi
+if [ "${INSTALLED_CARGO_NDK_VERSION}" != "${CARGO_NDK_VERSION}" ]; then
+    cargo install --locked --force --version "${CARGO_NDK_VERSION}" cargo-ndk
 fi
 
 ANDROID_ABIS=("arm64-v8a" "armeabi-v7a" "x86" "x86_64")

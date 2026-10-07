@@ -7,8 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -42,11 +42,12 @@ internal fun SettingsScreen(
 
     Scaffold(modifier = modifier.fillMaxSize()) { contentPadding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(contentPadding)
-                .padding(24.dp),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(contentPadding)
+                    .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             TextButton(onClick = onBack) {
@@ -137,9 +138,10 @@ internal fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        text = stringResource(
-                            if (uiState.isSaving) R.string.settings_saving else R.string.settings_save,
-                        ),
+                        text =
+                            stringResource(
+                                if (uiState.isSaving) R.string.settings_saving else R.string.settings_save,
+                            ),
                     )
                 }
             }
@@ -163,28 +165,31 @@ private fun SettingSwitch(
     }
 }
 
-private fun validationMessage(error: ProfileValidationError): Int = when (error) {
-    ProfileValidationError.INVALID_NETWORK_NAME -> R.string.error_invalid_network_name
-    ProfileValidationError.INVALID_NETWORK_SECRET -> R.string.error_invalid_network_secret
-    ProfileValidationError.INVALID_STATIC_ADDRESS -> R.string.error_invalid_static_address
-    ProfileValidationError.INVALID_PEER_ADDRESS -> R.string.error_invalid_peer_address
-    ProfileValidationError.INVALID_ROUTE -> R.string.error_invalid_route
-}
+private fun validationMessage(error: ProfileValidationError): Int =
+    when (error) {
+        ProfileValidationError.INVALID_NETWORK_NAME -> R.string.error_invalid_network_name
+        ProfileValidationError.INVALID_NETWORK_SECRET -> R.string.error_invalid_network_secret
+        ProfileValidationError.INVALID_STATIC_ADDRESS -> R.string.error_invalid_static_address
+        ProfileValidationError.INVALID_PEER_ADDRESS -> R.string.error_invalid_peer_address
+        ProfileValidationError.INVALID_ROUTE -> R.string.error_invalid_route
+    }
 
-private fun storageErrorMessage(error: ProfileStorageError): Int = when (error) {
-    ProfileStorageError.READ_FAILED -> R.string.error_profile_read
-    ProfileStorageError.WRITE_FAILED -> R.string.error_profile_save
-}
+private fun storageErrorMessage(error: ProfileStorageError): Int =
+    when (error) {
+        ProfileStorageError.READ_FAILED -> R.string.error_profile_read
+        ProfileStorageError.WRITE_FAILED -> R.string.error_profile_save
+    }
 
 @Preview(showBackground = true)
 @Composable
 private fun SettingsScreenPreview() {
     EasytierKTTheme {
         SettingsScreen(
-            uiState = SettingsUiState(
-                profile = ConnectionProfile(networkName = "demo-network"),
-                isLoading = false,
-            ),
+            uiState =
+                SettingsUiState(
+                    profile = ConnectionProfile(networkName = "demo-network"),
+                    isLoading = false,
+                ),
             onBack = {},
             onProfileChange = {},
             onSave = {},

@@ -15,13 +15,14 @@ class ConnectionViewModel(
     private val repository: ConnectionRepository,
 ) : ViewModel() {
     /** 最后一个订阅者离开 5 秒后停止状态映射的上游收集；这不会调用 disconnect() 或停止连接服务。 */
-    val uiState: StateFlow<ConnectionUiState> = repository.status
-        .map(::ConnectionUiState)
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000),
-            initialValue = ConnectionUiState(),
-        )
+    val uiState: StateFlow<ConnectionUiState> =
+        repository.status
+            .map(::ConnectionUiState)
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000),
+                initialValue = ConnectionUiState(),
+            )
 
     fun connect() = repository.connect()
 
@@ -30,10 +31,11 @@ class ConnectionViewModel(
     fun reportVpnPermissionDenied() = repository.reportVpnPermissionDenied()
 
     companion object {
-        fun factory(repository: ConnectionRepository): ViewModelProvider.Factory = viewModelFactory {
-            initializer {
-                ConnectionViewModel(repository)
+        fun factory(repository: ConnectionRepository): ViewModelProvider.Factory =
+            viewModelFactory {
+                initializer {
+                    ConnectionViewModel(repository)
+                }
             }
-        }
     }
 }
