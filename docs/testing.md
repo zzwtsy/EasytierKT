@@ -11,23 +11,28 @@
 
 ## 本地命令
 
-原生库构建还需要宿主机上的 Protocol Buffers 编译器 `protoc`。Ubuntu / Debian / WSL2 Ubuntu 可运行以下命令安装：
+原生库构建还需要宿主机上的 Protocol Buffers 编译器 `protoc` 及标准 `.proto` 文件。Ubuntu / Debian / WSL2 Ubuntu 使用 `--no-install-recommends` 时必须显式安装提供标准定义的 `libprotobuf-dev`：
 
 ```bash
 sudo apt-get update
-sudo apt-get install --no-install-recommends --yes protobuf-compiler
+sudo apt-get install --no-install-recommends --yes protobuf-compiler libprotobuf-dev
 protoc --version
+protoc --descriptor_set_out=/dev/null google/protobuf/duration.proto google/protobuf/timestamp.proto
 ```
 
-其他系统需安装对应的宿主机版本，并将其加入 `PATH`，或通过 `PROTOC` 环境变量指定可执行文件路径。脚本在下载源码前检查该工具并输出版本；GitHub Actions 会在原生库构建前安装它。
+其他系统需安装对应的宿主机版本及标准定义，并将其加入 `PATH`，或通过 `PROTOC` 环境变量指定可执行文件路径。自定义安装目录可通过 `PROTOC_INCLUDE` 指定包含 `google/protobuf/` 的目录。脚本在下载源码前检查工具版本和标准定义能否编译；GitHub Actions 会在原生库构建前安装这两项依赖。
 
-构建 APK 前先生成 EasyTier v2.6.4 JNI 与 FFI 原生库。需要 Git、Rust stable、Android NDK `27.2.12479018`；脚本会安装固定版本的 `cargo-ndk 3.5.4` 和四个 Android Rust targets。Linux / macOS：
+构建 APK 前先生成 EasyTier v2.6.4 JNI 与 FFI 原生库。需要 Git、Rust stable、Android NDK `30.0.16248370`（与 CI 一致）；脚本会安装固定版本的 `cargo-ndk 4.1.2` 和四个 Android Rust targets。Linux / macOS：
 
 ```bash
 bash tools/build-easytier-android.sh
 ```
 
 Windows 可在 WSL2 中进入仓库并运行同一命令。脚本校验 EasyTier commit `8428a89d2dabc94c97d370ec607c6ca142473626`，生成的 `.so` 放在 `app/src/main/jniLibs/`，由 Git 忽略。GitHub Actions 在 Gradle 检查前构建全部四种 ABI。
+
+原生构建的 Android API 固定为 24，与 `app` 的 `minSdk` 一致。NDK 30 要求带 API 版本的 Clang target；脚本同时为 C 编译和 bindgen 指定对应 target，补齐 `cargo-ndk 4.1.2` 默认 bindgen 参数中缺少的 API 版本。
+
+每个 ABI 在同一次 Cargo 构建中生成 JNI 和 FFI，统一依赖特性并共享 EasyTier 核心库的编译结果。
 
 Windows PowerShell：
 

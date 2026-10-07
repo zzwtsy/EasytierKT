@@ -24,6 +24,15 @@ if ! command -v "${PROTOC:-protoc}" >/dev/null 2>&1; then
     exit 1
 fi
 "${PROTOC:-protoc}" --version
+PROTOC_INCLUDE_ARGS=()
+if [ -n "${PROTOC_INCLUDE:-}" ]; then
+    PROTOC_INCLUDE_ARGS+=("--proto_path=${PROTOC_INCLUDE}")
+fi
+if ! "${PROTOC:-protoc}" "${PROTOC_INCLUDE_ARGS[@]}" --descriptor_set_out=/dev/null \
+    google/protobuf/duration.proto google/protobuf/timestamp.proto; then
+    echo "Protocol Buffers standard definitions are required. Install libprotobuf-dev on Ubuntu/Debian, or set PROTOC_INCLUDE to the directory containing google/protobuf/*.proto." >&2
+    exit 1
+fi
 
 if [ -e "${EASYTIER_SOURCE_DIR}" ] && [ ! -d "${EASYTIER_SOURCE_DIR}/.git" ]; then
     echo "${EASYTIER_SOURCE_DIR} exists but is not an EasyTier Git checkout." >&2
@@ -57,6 +66,7 @@ if [ "${INSTALLED_CARGO_NDK_VERSION}" != "${CARGO_NDK_VERSION}" ]; then
 fi
 
 ANDROID_ABIS=("arm64-v8a" "armeabi-v7a" "x86" "x86_64")
+ANDROID_API_LEVEL="24"
 declare -A RUST_TARGETS=(
     [arm64-v8a]="aarch64-linux-android"
     [armeabi-v7a]="armv7-linux-androideabi"
@@ -66,6 +76,10 @@ declare -A RUST_TARGETS=(
 
 for abi in "${ANDROID_ABIS[@]}"; do
     rust_target="${RUST_TARGETS[$abi]}"
+    clang_target="${rust_target}"
+    if [ "${abi}" = "armeabi-v7a" ]; then
+        clang_target="armv7a-linux-androideabi"
+    fi
     installed_rust_targets="$(
         cd "${EASYTIER_SOURCE_DIR}"
         rustup target list --installed
@@ -77,14 +91,21 @@ for abi in "${ANDROID_ABIS[@]}"; do
         )
     fi
 
-    echo "Building EasyTier JNI and FFI for ${abi} (${rust_target})"
+    ndk_environment="$(cargo ndk-env -t "${abi}" -P "${ANDROID_API_LEVEL}")"
+    bindgen_args="$(sed -n "s/^export BINDGEN_EXTRA_CLANG_ARGS_${rust_target//-/_}=\"\(.*\)\"$/\1/p" <<< "${ndk_environment}")"
+    if [ -z "${bindgen_args}" ]; then
+        echo "cargo-ndk did not provide bindgen arguments for ${abi}." >&2
+        exit 1
+    fi
+    # bindgen 优先读取带连字符的 target 变量，补齐 cargo-ndk 4.1.2 遗漏的 API 版本。
+    bindgen_args="${bindgen_args} --target=${clang_target}${ANDROID_API_LEVEL}"
+
+    echo "Building EasyTier JNI and FFI for ${abi} (${rust_target}, API ${ANDROID_API_LEVEL})"
     (
-        cd "${EASYTIER_SOURCE_DIR}/easytier-contrib/easytier-ffi"
-        cargo ndk -t "${abi}" build --release
-    )
-    (
-        cd "${EASYTIER_SOURCE_DIR}/easytier-contrib/easytier-android-jni"
-        cargo ndk -t "${abi}" build --release
+        cd "${EASYTIER_SOURCE_DIR}"
+        env "BINDGEN_EXTRA_CLANG_ARGS_${rust_target}=${bindgen_args}" \
+            cargo ndk -t "${abi}" -P "${ANDROID_API_LEVEL}" build --release \
+                -p easytier-ffi -p easytier-android-jni
     )
 
     output_dir="${PROJECT_ROOT}/app/src/main/jniLibs/${abi}"

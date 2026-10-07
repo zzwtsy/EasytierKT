@@ -47,10 +47,10 @@ jobs:
           build-tools/37.0.0
           ndk/30.0.16248370
 
-      - name: Install Protocol Buffers compiler
+      - name: Install Protocol Buffers compiler and standard definitions
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes protobuf-compiler
+          sudo apt-get install --no-install-recommends --yes protobuf-compiler libprotobuf-dev
           protoc --version
 
       - name: Set up Rust

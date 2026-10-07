@@ -42,7 +42,7 @@ JNI 接口类必须保持上游导出符号所要求的名称 `com.easytier.jni.
 - `libeasytier_android_jni.so`
 - `libeasytier_ffi.so`
 
-上游 commit 固定为 `8428a89d2dabc94c97d370ec607c6ca142473626`。`tools/build-easytier-android.sh` 使用 Rust stable、`cargo-ndk 3.5.4` 和 Android NDK `27.2.12479018`，为 arm64、32 位 ARM、x86 和 x86_64 构建。脚本生成的库写入 `app/src/main/jniLibs/` 并被 Git 忽略。CI 在 Android 检查前构建这些库；本地构建前也必须运行脚本。
+上游 commit 固定为 `8428a89d2dabc94c97d370ec607c6ca142473626`。`tools/build-easytier-android.sh` 使用 Rust stable、`cargo-ndk 4.1.2` 和 Android NDK `30.0.16248370`（与 CI 一致），为 arm64、32 位 ARM、x86 和 x86_64 构建。宿主机还需要 `protoc` 及标准 `.proto` 文件；脚本会在下载源码前检查这些依赖。脚本生成的库写入 `app/src/main/jniLibs/` 并被 Git 忽略。CI 在 Android 检查前构建这些库；本地构建前也必须运行脚本。
 
 构建依赖 GitHub 上游源码和 crates.io。当前 Windows 开发建议在 WSL2 中执行脚本。没有原生库时，Android APK 可以通过 Kotlin 编译，但运行连接会显示缺少原生库错误。
 
