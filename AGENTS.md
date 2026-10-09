@@ -6,7 +6,7 @@
 - Gradle 版本以仓库中的 Gradle Wrapper 为准。
 - 开始修改前阅读 docs/architecture.md、相关代码和测试。
 - 参考功能为 app/src/main/java/com/github/zzwtsy/easytierkt/feature/connection/。
-- 当前连接 Repository 仅暴露只读状态；接入 EasyTier 内核前不得假设连接配置、权限或服务协议。
+- 连接 Repository 暴露只读状态并接收按配置 ID 的连接控制；配置管理经共享 Repository 访问，UI 不直接访问存储、JNI 或 VPN 服务协议。
 
 ## 目录与架构
 - 按业务 feature 组织页面及其相关代码。

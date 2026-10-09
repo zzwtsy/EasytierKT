@@ -30,7 +30,9 @@ androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
-androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+# 显式固定 1.5.0-beta01 覆盖 BOM 的 1.4.0：MD3 Expressive API（MotionScheme、Emphasized 字阶、
+# Flexible App Bar、波浪进度指示）在 1.4.0 stable 仍为 internal，1.5.0-beta01 才公开。
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3", version = "1.5.0-beta01" }
 androidx-navigation3-runtime = { group = "androidx.navigation3", name = "navigation3-runtime", version.ref = "navigation3" }
 androidx-navigation3-ui = { group = "androidx.navigation3", name = "navigation3-ui", version.ref = "navigation3" }
 kotlinx-serialization-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-core", version.ref = "kotlinxSerialization" }

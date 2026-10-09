@@ -2,8 +2,8 @@
 
 ## 连接流程
 
-1. 首页调用 `VpnService.prepare()`。系统授权完成后，页面通过 `AndroidConnectionRepository` 发送显式连接 Intent。
-2. `EasyTierVpnService` 立即启动前台服务并显示常驻通知，然后从 Keystore 加密存储读取 profile。
+1. 首页调用 `VpnService.prepare()`。系统授权完成后，页面通过 `AndroidConnectionRepository` 发送包含配置 ID 的显式连接 Intent。
+2. `EasyTierVpnService` 立即启动前台服务并显示常驻通知，然后按配置 ID 从共享 Repository 读取最新参数。
 3. 服务生成 EasyTier v2.6.4 TOML，在后台线程调用 JNI 启动网络实例，并轮询运行信息直到分配虚拟 IPv4。
 4. 服务根据虚拟 IPv4、配置路由、peer 发布的 `proxy_cidrs` 和 Magic DNS 建立 TUN，再把文件描述符交给 EasyTier。
 5. 服务每两秒读取运行信息。peer 连接状态变化会更新页面；路由集合变化时重新建立 TUN 路由并更新 EasyTier 文件描述符。
@@ -23,15 +23,15 @@
 
 ## 配置与密钥
 
-单 profile 支持网络名、可选网络密钥、一个或多个 peer URL、DHCP 或静态 IPv4、IPv4 CIDR 路由和 Magic DNS。peer URL 接受 `tcp`、`udp`、`ws`、`wss` 和 `quic` scheme。保存配置后，下次连接生效。
+每份 profile 支持网络名、可选网络密钥、一个或多个 peer URL、DHCP 或静态 IPv4、IPv4 CIDR 路由和 Magic DNS。peer URL 接受 `tcp`、`udp`、`ws`、`wss` 和 `quic` scheme。支持多份配置，每次运行一份；连接期间先断开才能切换。编辑运行配置不会立即改变当前会话，下次手动连接或系统恢复服务时生效。
 
-整个 profile 使用 AES/GCM 加密后写入私有 SharedPreferences；AES-256 密钥保存在 Android Keystore。Android 备份与设备迁移规则排除 `easytier_profile.xml`，防止仅恢复密文而没有 Keystore 密钥。应用不会记录 TOML 或 profile 中的网络密钥。
+整个 v2 配置集合（配置、选中 ID、恢复 ID）使用 AES/GCM 加密后写入私有 SharedPreferences；AES-256 密钥保存在 Android Keystore。Android 备份与设备迁移规则排除 `easytier_profile.xml`，防止仅恢复密文而没有 Keystore 密钥。应用不会记录 TOML 或 profile 中的网络密钥，也不将完整配置写入导航参数或保存实例状态。旧单配置密文在新集合写入且读回验证后清理；迁移失败保留旧记录。
 
 ## Service 和权限
 
 Manifest 声明 `INTERNET`、`ACCESS_NETWORK_STATE` 和前台服务权限。`EasyTierVpnService` 声明 `BIND_VPN_SERVICE`，由于 Android 系统需要绑定 VPN 服务，组件为 exported；签名级系统权限限制绑定方。应用向该 Service 发送的连接 Intent 都是显式 Intent。
 
-Android 14 及以上使用 `systemExempted` 前台服务类型。连接由用户在前台点按触发。服务使用 `START_STICKY`，系统回收进程后会通过空 Intent 恢复，并重新读取已保存配置。未注册开机广播；设备重启后由用户手动连接。
+Android 14 及以上使用 `systemExempted` 前台服务类型。连接由用户在前台点按触发。服务使用 `START_STICKY`，系统回收进程后会通过空 Intent 恢复，并根据恢复 ID 重新读取原配置的最新保存参数。恢复 ID 缺失或对应配置无效时停止，不能替换成其他选中配置。主动断开、授权撤销和启动失败会撤销恢复记录，并清理会话资源。未注册开机广播；设备重启后由用户手动连接。
 
 通知操作使用显式 Service 或 Activity PendingIntent，并设为 immutable。VPN 被系统撤销时，服务会停止内核实例并关闭 TUN。
 
@@ -48,7 +48,7 @@ JNI 接口类必须保持上游导出符号所要求的名称 `com.easytier.jni.
 
 ## 已知范围
 
-- 仅一个 profile；没有开机自启动、后台自动重连开关或连接历史。
+- 支持多配置新增、编辑、删除和选择，每次只运行一份；没有复制、导入导出、开机自启动、后台自动重连开关或连接历史。
 - 当前 TUN 配置仅支持 IPv4；不支持 IPv6 路由、exit node 或默认路由。
 - peer 状态和运行时发布路由通过两秒轮询获取。
 - VPN 授权与真实组网必须在设备或模拟器上手动验证；CI 只构建原生库并运行 Android Lint、JVM 单元测试和 APK 构建。

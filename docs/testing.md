@@ -2,8 +2,9 @@
 
 ## 测试分层
 
-- `src/test`：连接 ViewModel 的状态与操作委托、profile 输入校验及 EasyTier v2.6.4 TOML 序列化。
-- `src/androidTest`：Compose 页面、Navigation 3 跳转、系统返回和 Activity 重建后的返回栈恢复。
+- `src/test`：配置集合增删改、会话预留限制、并发写入、存储错误保护、迁移顺序、原配置最新参数恢复、编辑 ViewModel、授权 ID 保留及 EasyTier v2.6.4 TOML 序列化。
+- `src/androidTest`：多配置新增、选择和删除、运行期间操作禁用、错误重试、未保存返回确认及 Activity 重建后的编辑草稿恢复；另用独立 SharedPreferences 与 Keystore key alias 验证真实加密存储与 v1 迁移。
+- `ProfileTestRunner` 注入测试 Application，UI 与导航测试只使用内存配置及连接替身，不读写用户配置、不启动真实 VPN。加密测试清理自己的文件和 key alias。
 - Preview 使用显式 UI 状态，不依赖真实内核、VPN 授权、网络或本地用户数据。
 - VPN 授权、系统前台服务、真实 peer 连接及路由转发需要设备或模拟器人工验证；这些场景不在 JVM 测试中模拟。
 
@@ -52,6 +53,22 @@ macOS / Linux：
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
-连接功能还需要在设备上确认以下系统行为：首次点击连接时的 VPN 授权；VPN 服务、内核和 peer 状态分别更新；已配置与 peer 发布的 IPv4 路由可达；未创建默认路由；点击应用内或通知中的断开操作会关闭隧道；系统回收进程后 sticky service 可以恢复；用户重启设备后不会自动连接。
+连接功能还需要在设备上确认以下系统行为：首次点击连接时的 VPN 授权；VPN 服务、内核和 peer 状态分别更新；已配置与 peer 发布的 IPv4 路由可达；未创建默认路由；点击应用内或通知中的断开操作会关闭隧道；系统回收进程后 sticky service 按原配置 ID 的最新参数恢复；用户重启设备后不会自动连接。
+
+多配置设备验收还包括：连接 A 时禁止切换或删除 A，但允许编辑保存 A；主动断开后可选择并连接 B；删除选中配置后要求重新选择；实际连接、常驻通知和首页显示相同配置名称。真实进程回收恢复、系统 VPN 授权与 A/B 网络可达性不能由内存 UI 测试替代。
+
+编辑草稿只承诺 Activity 重建期间保留；进程回收后重新读取已保存参数，不恢复未保存的密钥或草稿。
 
 GitHub Actions 固定构建 EasyTier 原生库，然后执行格式检查、Android Lint、单元测试和 Debug 构建。设备测试在连接设备后本地运行。发布构建也应运行 `:app:assembleRelease`。
+
+## 多配置实现验证记录（2026-10-09）
+
+使用仓库 Wrapper、缓存的 JDK 25 与只读 API 37 模拟器执行：
+
+```bash
+./gradlew :app:ktlintCheck :app:lintDebug :app:testDebugUnitTest :app:assembleDebug :app:connectedDebugAndroidTest --offline
+```
+
+全部任务通过：23 项 JVM 单元测试、17 项设备测试。设备测试包含真实 Keystore 加密读写、旧配置迁移，以及使用连接／存储替身的配置管理、Activity 重建和连接分发失败处理。Lint 通过不代表零警告。
+
+未实测真实 A/B 网络可达性、系统回收后的 VPN 恢复、系统授权撤销、设备重启及 TalkBack；本次自动测试不启动真实 VPN。深色、大字体和平板状态提供 Preview，尚未完成这些设置下的人工视觉与键盘检查。

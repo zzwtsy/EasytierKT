@@ -10,18 +10,24 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.github.zzwtsy.easytierkt.EasytierApplication
 import com.github.zzwtsy.easytierkt.MainActivity
 import com.github.zzwtsy.easytierkt.R
 import com.github.zzwtsy.easytierkt.data.profile.ConnectionProfile
-import com.github.zzwtsy.easytierkt.data.profile.EncryptedProfileStore
+import com.github.zzwtsy.easytierkt.data.profile.ConnectionProfileRepository
+import com.github.zzwtsy.easytierkt.data.profile.SavedProfile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -30,7 +36,10 @@ import kotlin.time.Duration.Companion.milliseconds
 /** 在前台服务中管理单个配置对应的 VPN 接口与 EasyTier 内核实例。 */
 class EasyTierVpnService : VpnService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private lateinit var profileStore: EncryptedProfileStore
+    private lateinit var profiles: ConnectionProfileRepository
+    private val commands = Channel<ServiceCommand>(Channel.UNLIMITED)
+    private var sessionProfile: SavedProfile? = null
+    private var generation = 0L
     private var startJob: Job? = null
     private var monitorJob: Job? = null
     private var vpnInterface: ParcelFileDescriptor? = null
@@ -43,8 +52,32 @@ class EasyTierVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
-        profileStore = EncryptedProfileStore(applicationContext)
+        profiles = (application as EasytierApplication).appContainer.profileRepository
         createNotificationChannel()
+        serviceScope.launch {
+            for (command in commands) {
+                when (command) {
+                    is ServiceCommand.Connect -> {
+                        if (sessionActive || startJob?.isActive == true) continue
+                        generation += 1
+                        val sessionGeneration = generation
+                        startJob = serviceScope.launch { startSession(command.id, command.restore, command.startId, sessionGeneration) }
+                    }
+                    is ServiceCommand.Stop -> {
+                        endSession()
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelfResult(command.startId)
+                    }
+                    is ServiceCommand.Failed -> {
+                        // 已清理会话的延迟错误不能终止后来启动的新会话。
+                        if (command.generation != generation) continue
+                        endSession(command.error)
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
+                    }
+                }
+            }
+        }
     }
 
     override fun onStartCommand(
@@ -52,70 +85,88 @@ class EasyTierVpnService : VpnService() {
         flags: Int,
         startId: Int,
     ): Int {
-        when (intent?.action) {
-            ACTION_DISCONNECT -> {
-                serviceScope.launch {
-                    endSession()
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelfResult(startId)
-                }
-                return START_NOT_STICKY
-            }
-
-            // START_STICKY 恢复服务时可能收到 null intent；此时仍按当前保存的配置启动会话。
-            null, ACTION_CONNECT -> Unit
-
-            else -> {
-                stopSelfResult(startId)
-                return START_NOT_STICKY
-            }
-        }
-
-        if (!promoteToForeground()) {
-            ConnectionRuntime.update(
-                ConnectionStatus(phase = ConnectionPhase.ERROR, error = ConnectionError.START_FAILED),
-            )
-            stopSelfResult(startId)
+        lastStartId = startId
+        if (intent?.action == ACTION_DISCONNECT) {
+            ConnectionRuntime.update(ConnectionRuntime.status.value.copy(phase = ConnectionPhase.STOPPING))
+            commands.trySend(ServiceCommand.Stop(startId))
             return START_NOT_STICKY
         }
-
-        if (!sessionActive && startJob?.isActive != true) {
-            ConnectionRuntime.update(ConnectionStatus(phase = ConnectionPhase.STARTING))
-            startJob = serviceScope.launch { startSession() }
+        val restoring = intent == null
+        if (!restoring && intent.action != ACTION_CONNECT) return START_NOT_STICKY
+        val id = intent?.getStringExtra(EXTRA_PROFILE_ID)
+        if (!restoring && id.isNullOrBlank()) return START_NOT_STICKY
+        if (!promoteToForeground()) {
+            commands.trySend(ServiceCommand.Failed(ConnectionError.START_FAILED, generation))
+            return START_NOT_STICKY
         }
+        commands.trySend(ServiceCommand.Connect(id, restoring, startId))
         return START_STICKY
     }
 
     override fun onRevoke() {
         super.onRevoke()
-        serviceScope.launch {
-            endSession()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-        }
+        commands.trySend(ServiceCommand.Stop(lastStartId))
     }
 
+    private var lastStartId = 0
+
     override fun onDestroy() {
+        commands.close()
+        if (sessionActive || engineStarted || startJob?.isActive == true) {
+            ConnectionRuntime.update(ConnectionRuntime.status.value.copy(phase = ConnectionPhase.STOPPING))
+            serviceScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                // 非主动销毁保留恢复 ID，只清理此进程的资源与预留；显式停止已在 endSession 撤销恢复。
+                withContext(NonCancellable) {
+                    startJob?.cancelAndJoin()
+                    monitorJob?.cancelAndJoin()
+                    sessionActive = false
+                    stopEasyTierInstance()
+                    closeTunInterface()
+                    profiles.releaseSession()
+                    ConnectionRuntime.update(ConnectionStatus())
+                }
+            }
+        } else {
+            closeTunInterface()
+        }
         serviceScope.cancel()
-        closeTunInterface()
         super.onDestroy()
     }
 
-    private suspend fun startSession() {
-        val profile =
-            try {
-                withContext(Dispatchers.IO) { profileStore.read() }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                fail(ConnectionError.PROFILE_READ_FAILED)
-                return
-            }
-
-        if (profile.validationError() != null) {
-            fail(ConnectionError.PROFILE_INVALID)
+    private suspend fun startSession(
+        requestedId: String?,
+        restore: Boolean,
+        startId: Int,
+        generation: Long,
+    ) {
+        if (restore) {
+            // 同进程的上一服务仍清理资源时，恢复任务等待其释放身份，避免留下未启动的前台服务。
+            ConnectionRuntime.status.first { it.phase != ConnectionPhase.STOPPING }
+        } else if (ConnectionRuntime.status.value.phase == ConnectionPhase.STOPPING) {
             return
         }
+        val id = if (restore) profiles.resumableProfileId() else requestedId
+        if (id == null) {
+            if (profiles.state.value.error != null) {
+                fail(ConnectionError.PROFILE_READ_FAILED, generation)
+            } else {
+                commands.trySend(ServiceCommand.Stop(startId))
+            }
+            return
+        }
+        val result = profiles.sessionProfile(id)
+        if (result.error != null) {
+            fail(result.error.connectionError(), generation)
+            return
+        }
+        if (ConnectionRuntime.status.value.phase == ConnectionPhase.STOPPING) return
+        val savedProfile = requireNotNull(result.profile)
+        sessionProfile = savedProfile
+        val profile = savedProfile.config
+        ConnectionRuntime.update(
+            ConnectionStatus(phase = ConnectionPhase.STARTING, profileId = id, profileName = savedProfile.displayName),
+        )
+        promoteToForeground()
 
         try {
             withContext(Dispatchers.IO) {
@@ -125,6 +176,8 @@ class EasyTierVpnService : VpnService() {
             ConnectionRuntime.update(
                 ConnectionStatus(
                     phase = ConnectionPhase.STARTING,
+                    profileId = savedProfile.id,
+                    profileName = savedProfile.displayName,
                     kernelRunning = true,
                 ),
             )
@@ -143,7 +196,7 @@ class EasyTierVpnService : VpnService() {
 
             val assignedInfo =
                 networkInfo ?: run {
-                    fail(ConnectionError.START_FAILED)
+                    fail(ConnectionError.START_FAILED, generation)
                     return
                 }
 
@@ -151,20 +204,23 @@ class EasyTierVpnService : VpnService() {
             applyTunConfig(desiredConfig)
             sessionActive = true
             publishConnected(assignedInfo)
-            monitorJob = serviceScope.launch { monitorNetwork(profile) }
+            monitorJob = serviceScope.launch { monitorNetwork(profile, generation) }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: LinkageError) {
-            fail(ConnectionError.NATIVE_LIBRARY_UNAVAILABLE)
+            fail(ConnectionError.NATIVE_LIBRARY_UNAVAILABLE, generation)
         } catch (_: SecurityException) {
-            fail(ConnectionError.START_FAILED)
+            fail(ConnectionError.START_FAILED, generation)
         } catch (error: Exception) {
             Log.e(TAG, "Failed to start EasyTier session (${error.javaClass.simpleName})")
-            fail(ConnectionError.START_FAILED)
+            fail(ConnectionError.START_FAILED, generation)
         }
     }
 
-    private suspend fun monitorNetwork(profile: ConnectionProfile) {
+    private suspend fun monitorNetwork(
+        profile: ConnectionProfile,
+        generation: Long,
+    ) {
         while (serviceScope.isActive && sessionActive) {
             delay(NETWORK_INFO_INTERVAL_MS.milliseconds)
             val info =
@@ -188,7 +244,7 @@ class EasyTierVpnService : VpnService() {
                     throw cancelled
                 } catch (error: Exception) {
                     Log.e(TAG, "Failed to update VPN routes (${error.javaClass.simpleName})")
-                    fail(ConnectionError.START_FAILED)
+                    fail(ConnectionError.START_FAILED, generation)
                     return
                 }
             }
@@ -199,7 +255,7 @@ class EasyTierVpnService : VpnService() {
     private suspend fun applyTunConfig(config: TunConfig) {
         val builder =
             Builder()
-                .setSession(getString(R.string.notification_channel_name))
+                .setSession(sessionProfile?.displayName ?: getString(R.string.notification_channel_name))
                 .setMtu(VPN_MTU)
 
         builder.addAddress(config.ipv4Address, config.networkLength)
@@ -238,24 +294,36 @@ class EasyTierVpnService : VpnService() {
         }
     }
 
-    private suspend fun fail(error: ConnectionError) {
-        sessionActive = false
-        stopEasyTierInstance()
-        closeTunInterface()
-        ConnectionRuntime.update(ConnectionStatus(phase = ConnectionPhase.ERROR, error = error))
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+    private fun fail(
+        error: ConnectionError,
+        generation: Long,
+    ) {
+        commands.trySend(ServiceCommand.Failed(error, generation))
     }
 
-    private suspend fun endSession() {
-        startJob?.cancelAndJoin()
-        startJob = null
-        monitorJob?.cancelAndJoin()
-        monitorJob = null
-        sessionActive = false
-        stopEasyTierInstance()
-        closeTunInterface()
-        ConnectionRuntime.update(ConnectionStatus())
+    private suspend fun endSession(error: ConnectionError? = null) {
+        // 清理不可因服务作用域取消而中断；先撤销恢复，再等待启动和监控任务结束。
+        withContext(NonCancellable) {
+            ConnectionRuntime.update(ConnectionRuntime.status.value.copy(phase = ConnectionPhase.STOPPING))
+            val storageError = profiles.clearResume().error?.connectionError()
+            startJob?.cancelAndJoin()
+            startJob = null
+            monitorJob?.cancelAndJoin()
+            monitorJob = null
+            sessionActive = false
+            stopEasyTierInstance()
+            closeTunInterface()
+            profiles.releaseSession()
+            sessionProfile = null
+            generation += 1
+            val finalError = storageError ?: error
+            ConnectionRuntime.update(
+                ConnectionStatus(
+                    phase = if (finalError == null) ConnectionPhase.DISCONNECTED else ConnectionPhase.ERROR,
+                    error = finalError,
+                ),
+            )
+        }
     }
 
     private suspend fun stopEasyTierInstance() {
@@ -263,7 +331,7 @@ class EasyTierVpnService : VpnService() {
         withContext(Dispatchers.IO) {
             try {
                 EasyTierEngine.stop()
-            } catch (error: LinkageError) {
+            } catch (_: LinkageError) {
                 Log.w(TAG, "EasyTier native library is unavailable during stop")
             } catch (error: Exception) {
                 Log.w(TAG, "Failed to stop EasyTier (${error.javaClass.simpleName})")
@@ -285,13 +353,20 @@ class EasyTierVpnService : VpnService() {
     }
 
     private fun publishConnected(info: EasyTierNetworkInfo) {
+        // 监控循环每 2 秒重建状态；已连接时保留首次进入 CONNECTED 的时刻，避免连接时长被重置。
+        val previous = ConnectionRuntime.status.value
         ConnectionRuntime.update(
             ConnectionStatus(
                 phase = ConnectionPhase.CONNECTED,
+                profileId = sessionProfile?.id,
+                profileName = sessionProfile?.displayName,
                 vpnServiceRunning = vpnInterface != null,
                 kernelRunning = engineStarted,
                 virtualIpv4 = info.virtualIpv4,
                 peerCount = info.peerCount,
+                connectedAtEpochMs =
+                    previous.connectedAtEpochMs?.takeIf { previous.phase == ConnectionPhase.CONNECTED }
+                        ?: System.currentTimeMillis(),
             ),
         )
     }
@@ -340,7 +415,7 @@ class EasyTierVpnService : VpnService() {
             .Builder(this, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(getString(R.string.notification_channel_name))
-            .setContentText(getString(R.string.notification_running))
+            .setContentText(sessionProfile?.displayName ?: getString(R.string.notification_running))
             .setContentIntent(
                 PendingIntent.getActivity(
                     this,
@@ -381,7 +456,25 @@ class EasyTierVpnService : VpnService() {
         val enableMagicDns: Boolean,
     )
 
+    private sealed interface ServiceCommand {
+        data class Connect(
+            val id: String?,
+            val restore: Boolean,
+            val startId: Int,
+        ) : ServiceCommand
+
+        data class Stop(
+            val startId: Int,
+        ) : ServiceCommand
+
+        data class Failed(
+            val error: ConnectionError,
+            val generation: Long,
+        ) : ServiceCommand
+    }
+
     companion object {
+        const val EXTRA_PROFILE_ID = "profile_id"
         const val ACTION_CONNECT = "com.github.zzwtsy.easytierkt.action.CONNECT"
         const val ACTION_DISCONNECT = "com.github.zzwtsy.easytierkt.action.DISCONNECT"
 
