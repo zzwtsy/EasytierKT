@@ -9,6 +9,7 @@
     <exclude
         domain="sharedpref"
         path="easytier_profile.xml" />
+    <exclude domain="file" path="datastore/" />
     <!--
    <include domain="sharedpref" path="."/>
    <exclude domain="sharedpref" path="device.xml"/>

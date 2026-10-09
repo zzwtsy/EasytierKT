@@ -193,11 +193,11 @@ class ConnectionProfileRepository(
             }
         }
 
-    private fun ensureLoaded() {
+    private suspend fun ensureLoaded() {
         if (mutableState.value.document == null && mutableState.value.error == null) readDocument()
     }
 
-    private fun readDocument() {
+    private suspend fun readDocument() {
         try {
             val document = store.read().also { it.validateStructure() }
             mutableState.value =
@@ -214,7 +214,7 @@ class ConnectionProfileRepository(
         profile: SavedProfile? = null,
         activeProfileId: String? = mutableState.value.activeProfileId,
     ): ProfileActionResult =
-        // 同步提交与状态发布作为一个不可取消的小事务，避免磁盘已写入但 UI 仍保留旧集合。
+        // 持久写入与状态发布作为一个不可取消的小事务，避免磁盘已写入但 UI 仍保留旧集合。
         withContext(NonCancellable) {
             try {
                 document.validateStructure()

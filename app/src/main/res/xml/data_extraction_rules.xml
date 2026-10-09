@@ -12,11 +12,13 @@
         <exclude
             domain="sharedpref"
             path="easytier_profile.xml" />
+        <exclude domain="file" path="datastore/" />
     </cloud-backup>
     <device-transfer>
         <exclude
             domain="sharedpref"
             path="easytier_profile.xml" />
+        <exclude domain="file" path="datastore/" />
     </device-transfer>
     <!--
     <device-transfer>

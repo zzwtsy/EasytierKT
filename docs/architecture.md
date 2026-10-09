@@ -8,7 +8,7 @@
 - `feature/connection/`：连接状态 Route、Screen、UiState 和 ViewModel。
 - `feature/profiles/`：配置列表、新增与编辑页面及其 ViewModel。
 - `data/connection/`：按配置 ID 的连接控制、状态类型与 VPN/内核生命周期。
-- `data/profile/`：多配置集合、加密存储、迁移和会话恢复 ID。
+- `data/profile/`：多配置集合、加密存储和会话恢复 ID。
 - `ui/theme/`：项目主题（颜色、字体、形状、动效与语义扩展色）。
 - `ui/icons/`：Material Symbols Rounded 本地图标。
 
@@ -34,9 +34,9 @@ UI 的颜色、字体、形状、动效、组件模式与自适应约定见 `doc
 
 `ConnectionProfileRepository` 提供只读配置状态和新增、编辑、选择、删除操作。每份 `SavedProfile` 包含稳定 UUID、独立显示名称和现有 `ConnectionProfile` 网络参数；同一网络允许保存多份方案。首份保存自动选中，删除选中项后要求重新选择。应用只运行一份配置；会话预留存在时禁止切换和删除运行配置，仍可编辑保存或删除其他配置。
 
-`ProfileDocument` v2 保存配置集合、选中 ID 和恢复 ID。配置修改与会话预留共用 Repository 的 Mutex，持久化成功后才发布新状态；读取失败时禁止变更并允许重试。运行身份独立于持久化恢复记录，因此过期恢复 ID 不会锁住页面。服务读取配置后使用内存参数，编辑不热更新；下一次手动连接或系统恢复使用最新参数。
+`ProfileDocument` schema 4 保存配置集合、选中 ID 和恢复 ID。配置修改与会话预留共用 Repository 的 Mutex，持久化成功后才发布新状态；读取失败时禁止变更并允许重试。运行身份独立于持久化恢复记录，因此过期恢复 ID 不会锁住页面。服务读取配置后使用内存参数，编辑不热更新；下一次手动连接或系统恢复使用最新参数。
 
-`EncryptedProfileStore` 使用原 Android Keystore AES/GCM 密钥，将整个文档写入 `easytier_profile` 的 `encrypted_profiles_v2`。旧 `encrypted_profile_v1` 仅在 v2 缺失时迁移，新记录成功写入并读回验证后才清理旧记录；不完整旧配置仍保留供编辑。v2 损坏时不回退到旧配置。Android 云备份与设备迁移规则继续排除同一 SharedPreferences 文件。UI 不直接接触磁盘、Keystore 或 JNI。
+`EncryptedProfileStore` 使用类型化 DataStore 1.2.1，文件为 `files/datastore/profiles_v4.bin`。Serializer 使用独立 Keystore AES-256/GCM 密钥：版本字节、12 字节随机 IV、密文与认证标签构成二进制信封，固定 AAD 绑定 schema 4 协议，无 Base64。DataStore 负责原子文件替换，`ProfileStore` 提供挂起读写；Repository 的 Mutex 仍维护业务规则，写入和状态发布在小段 NonCancellable 事务内完成。只在文件不存在时返回空文档；密文损坏、认证失败、密钥丢失或 schema 错误均阻止变更。旧 SharedPreferences 与旧文件不读取、不迁移、不删除。备份与设备迁移排除 `datastore/`，继续排除旧 SharedPreferences。
 
 JNI 方法名依赖上游的 `com.easytier.jni.EasyTierJNI` 类名，R8 规则会保留它。原生 JNI 与 FFI 两个共享库按固定的 EasyTier v2.6.4 commit 构建，覆盖 `arm64-v8a`、`armeabi-v7a`、`x86` 和 `x86_64`。生成库位于 `app/src/main/jniLibs/`，不提交到 Git；`tools/build-easytier-android.sh` 与 CI 从固定上游源码构建。
 

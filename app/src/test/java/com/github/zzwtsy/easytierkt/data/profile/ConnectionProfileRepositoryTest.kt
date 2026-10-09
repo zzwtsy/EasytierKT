@@ -88,7 +88,7 @@ class ConnectionProfileRepositoryTest {
     @Test
     fun readFailureCannotOverwriteOriginalData() =
         runTest {
-            val original = ProfileDocument.migrate(config, "old")
+            val original = ProfileDocument(profiles = listOf(SavedProfile("old", "old", config)), selectedProfileId = "old")
             val store = MemoryProfileStore(original).apply { failRead = true }
             val repository = ConnectionProfileRepository(store, StandardTestDispatcher(testScheduler))
             repository.refresh()
@@ -151,24 +151,13 @@ class ConnectionProfileRepositoryTest {
             assertNull(repository.resumableProfileId())
         }
 
-    /** 不完整旧配置仍迁移为可编辑记录，保持原参数并提供默认显示名称。 */
-    @Test
-    fun migrationPreservesIncompleteLegacyConfiguration() {
-        val old = ConnectionProfile(networkSecret = "temporary-test-secret", useDhcp = false)
-        val migrated = ProfileDocument.migrate(old, "legacy")
-        assertEquals(old, migrated.profiles.single().config)
-        assertEquals("默认配置", migrated.profiles.single().displayName)
-        assertEquals("legacy", migrated.selectedProfileId)
-        assertNull(migrated.resumeProfileId)
-    }
-
     /** 损坏文档中的重复 ID、悬空引用及未来版本均拒绝读取，不能当作空列表。 */
     @Test
     fun rejectsInvalidDocumentStructure() {
         val profile = SavedProfile("id", "A", config)
         val invalid =
             listOf(
-                ProfileDocument(schemaVersion = 3),
+                ProfileDocument(schemaVersion = 99),
                 ProfileDocument(profiles = listOf(profile, profile)),
                 ProfileDocument(selectedProfileId = "missing"),
                 ProfileDocument(resumeProfileId = "missing"),
@@ -176,32 +165,17 @@ class ConnectionProfileRepositoryTest {
         invalid.forEach { document -> assertTrue(runCatching { document.validateStructure() }.isFailure) }
     }
 
-    /** 迁移写入抛出异常时不调用旧记录清理，原配置可以留待下一次迁移。 */
+    /** schema 3 不属于当前存储协议，读取失败后拒绝新增且不覆盖原文档。 */
     @Test
-    fun failedMigrationWriteKeepsLegacyRecord() {
-        var removed = false
-        val result =
-            runCatching {
-                migrateLegacyRecord(config, writeNew = { error("Test write failure") }, readNew = { ProfileDocument() }, removeOld = {
-                    removed =
-                        true
-                })
-            }
-        assertTrue(result.isFailure)
-        assertFalse(removed)
-    }
-
-    /** 新记录读回内容与迁移结果不一致时拒绝完成迁移，旧记录仍不被删除。 */
-    @Test
-    fun failedMigrationVerificationKeepsLegacyRecord() {
-        var removed = false
-        val result =
-            runCatching {
-                migrateLegacyRecord(config, writeNew = {}, readNew = { ProfileDocument() }, removeOld = { removed = true })
-            }
-        assertTrue(result.isFailure)
-        assertFalse(removed)
-    }
+    fun obsoleteSchemaBlocksMutationWithoutOverwrite() =
+        runTest {
+            val document = ProfileDocument(schemaVersion = 3)
+            val store = MemoryProfileStore(document)
+            val repository = ConnectionProfileRepository(store, StandardTestDispatcher(testScheduler))
+            assertEquals(ProfileActionError.READ_FAILED, repository.create("A", config).error)
+            assertEquals(document, store.document)
+            assertEquals(0, store.writes)
+        }
 
     /** 名称空白或含控制字符以及网络参数无效时，新增失败且存储保持为空。 */
     @Test
@@ -223,12 +197,12 @@ internal class MemoryProfileStore(
     var failWrite = false
     var writes = 0
 
-    override fun read(): ProfileDocument {
+    override suspend fun read(): ProfileDocument {
         check(!failRead) { "Test read failure" }
         return document
     }
 
-    override fun write(document: ProfileDocument) {
+    override suspend fun write(document: ProfileDocument) {
         check(!failWrite) { "Test write failure" }
         this.document = document
         writes += 1

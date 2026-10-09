@@ -1,116 +1,144 @@
 package com.github.zzwtsy.easytierkt.data.profile
 
 import android.content.Context
-import android.util.Base64
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 import java.security.KeyStore
 import java.util.UUID
-import javax.crypto.Cipher
-import javax.crypto.SecretKey
 
 @RunWith(AndroidJUnit4::class)
 class EncryptedProfileStoreTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val id = UUID.randomUUID().toString()
-    private val preferencesName = "profile-test-$id"
-    private val keyAlias = "profile-test-key-$id"
-    private val preferences get() = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
-    private lateinit var store: EncryptedProfileStore
+    private val fileName = "profile-test-$id.bin"
+    private val alias = "profile-test-key-$id"
+    private val file = File(context.filesDir, "datastore/$fileName")
+    private var job = SupervisorJob()
+    private var store = createStore()
+    private val document =
+        ProfileDocument(
+            profiles =
+                listOf(
+                    SavedProfile("a", "A", ConnectionProfile(networkName = "office", networkSecret = "test-secret-only")),
+                    SavedProfile("b", "B", ConnectionProfile(networkName = "home")),
+                ),
+            selectedProfileId = "b",
+            resumeProfileId = "a",
+        )
 
-    @Before
-    fun prepare() {
-        store = EncryptedProfileStore(context, preferencesName, keyAlias)
-        store.write(ProfileDocument())
-        check(preferences.edit().clear().commit())
+    private fun createStore() = EncryptedProfileStore(context, fileName, alias, CoroutineScope(job + Dispatchers.IO))
+
+    private suspend fun closeStore() {
+        job.cancelAndJoin()
+    }
+
+    private fun reopen() {
+        job = SupervisorJob()
+        store = createStore()
     }
 
     @After
-    fun cleanup() {
-        context.deleteSharedPreferences(preferencesName)
-        KeyStore.getInstance("AndroidKeyStore").apply {
-            load(null)
-            deleteEntry(keyAlias)
+    fun cleanup() =
+        runBlocking {
+            closeStore()
+            file.delete()
+            KeyStore.getInstance("AndroidKeyStore").apply {
+                load(null)
+                deleteEntry(alias)
+            }
+            context.deleteSharedPreferences("legacy-test-$id")
+            Unit
         }
-    }
 
-    /** 保存两份配置后重建存储对象，验证配置、选中项和恢复 ID 完整恢复且存储值不含明文密钥。 */
+    /** 两份配置原子写入后关闭旧实例并重建，全部字段恢复且二进制文件不包含明文密钥。 */
     @Test
-    fun encryptedCollectionSurvivesStoreRecreation() {
-        val document =
-            ProfileDocument(
-                profiles =
-                    listOf(
-                        SavedProfile("a", "A", ConnectionProfile(networkName = "office", networkSecret = "test-secret-only")),
-                        SavedProfile("b", "B", ConnectionProfile(networkName = "home")),
-                    ),
-                selectedProfileId = "b",
-                resumeProfileId = "a",
-            )
-        store.write(document)
-        assertEquals(document, EncryptedProfileStore(context, preferencesName, keyAlias).read())
-        assertFalse(preferences.getString("encrypted_profiles_v2", null).orEmpty().contains("test-secret-only"))
-    }
+    fun encryptedCollectionSurvivesStoreRecreation() =
+        runBlocking {
+            store.write(document)
+            closeStore()
+            assertFalse(file.readBytes().decodeToString().contains("test-secret-only"))
+            reopen()
+            assertEquals(document, store.read())
+        }
 
-    /** 存在单配置密文时迁移并清理旧 key，第二次读取保持同一 ID 且不重复迁移。 */
+    /** 只有旧 SharedPreferences 时，新存储返回空文档且保留旧文件，不执行兼容读取或迁移。 */
     @Test
-    fun legacyMigrationIsPersistentAndIdempotent() {
-        val legacy = ConnectionProfile(networkName = "office", networkSecret = "migration-test-secret", routes = "192.168.1.0/24")
-        preferences.edit().putString("encrypted_profile_v1", encrypt(Json.encodeToString(legacy))).commit()
-        val first = store.read()
-        assertEquals(legacy, first.profiles.single().config)
-        assertEquals(first.profiles.single().id, first.selectedProfileId)
-        assertEquals(first, EncryptedProfileStore(context, preferencesName, keyAlias).read())
-        assertFalse(preferences.contains("encrypted_profile_v1"))
-        assertNotNull(preferences.getString("encrypted_profiles_v2", null))
-    }
+    fun absentFileIgnoresAndPreservesLegacyData() =
+        runBlocking {
+            val prefs = context.getSharedPreferences("legacy-test-$id", Context.MODE_PRIVATE)
+            assertTrue(prefs.edit().putString("encrypted_profiles_v3", "old-ciphertext").commit())
+            assertEquals(ProfileDocument(), store.read())
+            assertEquals("old-ciphertext", prefs.getString("encrypted_profiles_v3", null))
+            assertFalse(file.exists())
+        }
 
-    /** 不完整旧配置仍被保留，迁移不会丢弃用户已填写的字段。 */
+    /** 已认证密文中任一字节被更改时，读写均失败且原损坏文件不被空文档替换。 */
     @Test
-    fun incompleteLegacyRecordIsPreserved() {
-        val legacy = ConnectionProfile(networkSecret = "draft-test-secret", useDhcp = false)
-        preferences.edit().putString("encrypted_profile_v1", encrypt(Json.encodeToString(legacy))).commit()
-        val migrated = store.read()
-        assertEquals(legacy, migrated.profiles.single().config)
-        assertEquals("默认配置", migrated.profiles.single().displayName)
-    }
+    fun corruptCurrentPayloadIsNotOverwritten() =
+        runBlocking {
+            store.write(document)
+            closeStore()
+            val bytes = file.readBytes().also { it[it.lastIndex] = (it.last().toInt() xor 1).toByte() }
+            file.writeBytes(bytes)
+            reopen()
+            assertTrue(runCatching { store.read() }.isFailure)
+            assertTrue(runCatching { store.write(ProfileDocument()) }.isFailure)
+            assertTrue(bytes.contentEquals(file.readBytes()))
+        }
 
-    /** 旧密文损坏时读取失败，旧记录保留且不生成空集合覆盖。 */
+    /** 数据文件仍在但 Keystore 密钥已丢失时，读取失败且不创建替代密钥或覆盖原密文。 */
     @Test
-    fun corruptLegacyPayloadIsNotOverwritten() {
-        preferences.edit().putString("encrypted_profile_v1", "corrupt").commit()
-        assertTrue(runCatching { store.read() }.isFailure)
-        assertEquals("corrupt", preferences.getString("encrypted_profile_v1", null))
-        assertFalse(preferences.contains("encrypted_profiles_v2"))
-    }
+    fun missingKeyDoesNotCreateReplacementOrOverwrite() =
+        runBlocking {
+            store.write(document)
+            closeStore()
+            val bytes = file.readBytes()
+            val keys =
+                KeyStore.getInstance("AndroidKeyStore").apply {
+                    load(null)
+                    deleteEntry(alias)
+                }
+            reopen()
+            assertTrue(runCatching { store.read() }.isFailure)
+            assertTrue(runCatching { store.write(ProfileDocument()) }.isFailure)
+            assertFalse(keys.containsAlias(alias))
+            assertTrue(bytes.contentEquals(file.readBytes()))
+        }
 
-    /** v2 已存在但版本不支持时读取失败，即使 v1 有效也不回退至过期配置。 */
+    /** 同一实例已缓存文档但密钥随后丢失时，写入仍失败，不用新密钥覆盖可供排查的原密文。 */
     @Test
-    fun unsupportedNewDocumentDoesNotFallBackToLegacy() {
-        preferences
-            .edit()
-            .putString("encrypted_profile_v1", encrypt(Json.encodeToString(ConnectionProfile(networkName = "old"))))
-            .putString("encrypted_profiles_v2", encrypt(Json.encodeToString(ProfileDocument(schemaVersion = 3))))
-            .commit()
-        assertTrue(runCatching { store.read() }.isFailure)
-        assertTrue(preferences.contains("encrypted_profile_v1"))
-    }
+    fun missingKeyDuringOpenStoreCannotOverwriteCachedDocument() =
+        runBlocking {
+            store.write(document)
+            val bytes = file.readBytes()
+            KeyStore.getInstance("AndroidKeyStore").apply {
+                load(null)
+                deleteEntry(alias)
+            }
+            assertTrue(runCatching { store.write(document.copy(selectedProfileId = "a")) }.isFailure)
+            assertTrue(bytes.contentEquals(file.readBytes()))
+        }
 
-    private fun encrypt(json: String): String {
-        val key = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.getKey(keyAlias, null) as SecretKey
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, key)
-        val ciphertext = cipher.doFinal(json.encodeToByteArray())
-        return Base64.encodeToString(byteArrayOf(1) + cipher.iv + ciphertext, Base64.NO_WRAP)
-    }
+    /** 结构不合法的新文档在写入前被拒绝，已有配置继续可读且文件内容保持不变。 */
+    @Test
+    fun invalidDocumentDoesNotReplaceCurrentFile() =
+        runBlocking {
+            store.write(document)
+            val bytes = file.readBytes()
+            assertTrue(runCatching { store.write(ProfileDocument(schemaVersion = 3)) }.isFailure)
+            assertEquals(document, store.read())
+            assertTrue(bytes.contentEquals(file.readBytes()))
+        }
 }

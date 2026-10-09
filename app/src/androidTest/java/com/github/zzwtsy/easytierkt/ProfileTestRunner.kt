@@ -54,12 +54,12 @@ class TestProfileStore(
     var failRead = false
     var failWrite = false
 
-    override fun read(): ProfileDocument {
+    override suspend fun read(): ProfileDocument {
         check(!failRead) { "Test read failure" }
         return document
     }
 
-    override fun write(document: ProfileDocument) {
+    override suspend fun write(document: ProfileDocument) {
         check(!failWrite) { "Test write failure" }
         this.document = document
     }

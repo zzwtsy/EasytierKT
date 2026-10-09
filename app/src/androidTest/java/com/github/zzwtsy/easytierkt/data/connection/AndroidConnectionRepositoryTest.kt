@@ -40,7 +40,17 @@ class AndroidConnectionRepositoryTest {
         ConnectionRuntime.update(ConnectionStatus())
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         context = RecordingContext(ApplicationProvider.getApplicationContext())
-        store = TestProfileStore(ProfileDocument.migrate(ConnectionProfile(networkName = "test"), "a"))
+        store =
+            TestProfileStore(
+                ProfileDocument(
+                    profiles =
+                        listOf(
+                            com.github.zzwtsy.easytierkt.data.profile
+                                .SavedProfile("a", "test", ConnectionProfile(networkName = "test")),
+                        ),
+                    selectedProfileId = "a",
+                ),
+            )
         profiles = ConnectionProfileRepository(store)
         runBlocking { profiles.refresh() }
         repository = AndroidConnectionRepository(context, profiles, scope)
