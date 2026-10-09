@@ -13,6 +13,10 @@ object EasyTierJNI {
     @JvmStatic
     external fun runNetworkInstance(config: String): Int
 
+    /** 空输入生成身份，非空输入派生公钥；失败抛出不含密钥的错误。 */
+    @JvmStatic
+    external fun prepareSecureIdentity(privateKey: String): String
+
     @JvmStatic
     external fun setTunFd(
         instanceName: String,

@@ -48,12 +48,31 @@ if [ -n "$(git -C "${EASYTIER_SOURCE_DIR}" status --porcelain)" ]; then
     exit 1
 fi
 
-git -C "${EASYTIER_SOURCE_DIR}" fetch --depth 1 origin "refs/tags/${EASYTIER_VERSION}"
+if ! git -C "${EASYTIER_SOURCE_DIR}" cat-file -e "${EASYTIER_COMMIT}^{commit}" 2>/dev/null; then
+    git -C "${EASYTIER_SOURCE_DIR}" fetch --depth 1 origin "refs/tags/${EASYTIER_VERSION}"
+fi
 git -C "${EASYTIER_SOURCE_DIR}" checkout --detach "${EASYTIER_COMMIT}"
 ACTUAL_COMMIT="$(git -C "${EASYTIER_SOURCE_DIR}" rev-parse HEAD)"
 if [ "${ACTUAL_COMMIT}" != "${EASYTIER_COMMIT}" ]; then
     echo "Expected EasyTier ${EASYTIER_VERSION} at ${EASYTIER_COMMIT}, got ${ACTUAL_COMMIT}." >&2
     exit 1
+fi
+
+# 保持上游检出干净；补丁哈希隔离源码和 Cargo 构建缓存。
+PATCH_FILE="${PROJECT_ROOT}/tools/native-patches/android-profile.patch"
+PATCH_HASH="$(sha256sum "${PATCH_FILE}" | cut -d ' ' -f1)"
+UPSTREAM_SOURCE_DIR="${EASYTIER_SOURCE_DIR}"
+EASYTIER_SOURCE_DIR="${PROJECT_ROOT}/build/easytier-android-${EASYTIER_COMMIT}-${PATCH_HASH}"
+if [ ! -f "${EASYTIER_SOURCE_DIR}/.patch-ready" ]; then
+    mkdir -p "${EASYTIER_SOURCE_DIR}"
+    git -C "${UPSTREAM_SOURCE_DIR}" archive "${EASYTIER_COMMIT}" | tar -x -C "${EASYTIER_SOURCE_DIR}"
+    (cd "${EASYTIER_SOURCE_DIR}" && git apply --check "${PATCH_FILE}" && git apply "${PATCH_FILE}")
+    touch "${EASYTIER_SOURCE_DIR}/.patch-ready"
+fi
+
+printf '%s\n' "${EASYTIER_SOURCE_DIR}" > "${PROJECT_ROOT}/build/easytier-android-source-path.txt"
+if [ "${EASYTIER_PREPARE_ONLY:-0}" = "1" ]; then
+    exit 0
 fi
 
 CARGO_NDK_VERSION="4.1.2"
@@ -106,6 +125,12 @@ for abi in "${ANDROID_ABIS[@]}"; do
         env "BINDGEN_EXTRA_CLANG_ARGS_${rust_target}=${bindgen_args}" \
             cargo ndk -t "${abi}" -P "${ANDROID_API_LEVEL}" build --release \
                 -p easytier-ffi -p easytier-android-jni
+        # Android 以局部符号加载共享库；JNI 必须声明 FFI 的 DT_NEEDED，不能依赖加载顺序。
+        env "BINDGEN_EXTRA_CLANG_ARGS_${rust_target}=${bindgen_args}" \
+            cargo ndk -t "${abi}" -P "${ANDROID_API_LEVEL}" rustc --release \
+                -p easytier-android-jni -- \
+                -L "native=${EASYTIER_SOURCE_DIR}/target/${rust_target}/release" \
+                -l dylib=easytier_ffi
     )
 
     output_dir="${PROJECT_ROOT}/app/src/main/jniLibs/${abi}"
