@@ -169,7 +169,11 @@ private fun HeroSection(
     onDisconnect: () -> Unit,
 ) {
     val phase = uiState.status.phase
-    val canDisconnect = phase == ConnectionPhase.STARTING || phase == ConnectionPhase.CONNECTED
+    val canDisconnect =
+        phase == ConnectionPhase.STARTING ||
+            phase == ConnectionPhase.CONNECTED ||
+            phase == ConnectionPhase.ERROR &&
+            uiState.profiles.activeProfileId != null
     val motionScheme = MaterialTheme.motionScheme
     val haptic = LocalHapticFeedback.current
 
@@ -362,6 +366,11 @@ private fun StatusCard(status: ConnectionStatus) {
                         else -> stringResource(R.string.connection_peers_count, status.peerCount)
                     },
             )
+            status.virtualIpv6?.let { address ->
+                StatusRow(icon = {
+                    Icon(RouterIcon, contentDescription = null)
+                }, label = stringResource(R.string.connection_virtual_ipv6_label), value = address)
+            }
             status.virtualIpv4?.let { address ->
                 HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp))
                 StatusRow(
@@ -569,6 +578,11 @@ private fun errorMessage(error: ConnectionError): Int =
         ConnectionError.PROFILE_NOT_FOUND -> R.string.error_profile_not_found
         ConnectionError.PROFILE_WRITE_FAILED -> R.string.error_profile_resume_save
         ConnectionError.NATIVE_LIBRARY_UNAVAILABLE -> R.string.error_native_library
+        ConnectionError.CONFIG_REJECTED -> R.string.error_config_rejected
+        ConnectionError.ADDRESS_TIMEOUT -> R.string.error_address_timeout
+        ConnectionError.APPLICATION_UNAVAILABLE -> R.string.error_application_unavailable
+        ConnectionError.DNS_UNREACHABLE -> R.string.error_dns_unreachable
+        ConnectionError.TUN_FAILED -> R.string.error_tun_failed
         ConnectionError.START_FAILED -> R.string.error_connection_start
         ConnectionError.STOP_FAILED -> R.string.error_connection_stop
     }

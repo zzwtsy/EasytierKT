@@ -1,5 +1,7 @@
 package com.github.zzwtsy.easytierkt.data.profile
 
+import dev.eav.tomlkt.Toml
+import dev.eav.tomlkt.TomlArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -15,7 +17,8 @@ class ConnectionProfileTest {
                 networkSecret = "key\"with\\symbols",
                 peerAddresses = "udp://peer.example:11010\ntcp://192.0.2.10:11010",
                 routes = "192.168.10.0/24\n10.10.0.0/16",
-                enableMagicDns = true,
+                dns = DnsOptions(mode = DnsMode.MAGIC),
+                routing = RoutingOptions(mode = RouteMode.MANUAL),
             )
 
         val config = profile.toEasyTierToml()
@@ -27,7 +30,8 @@ class ConnectionProfileTest {
         assertTrue(config.contains("network_name = \"office\""))
         assertTrue(config.contains("network_secret = \"key\\\"with\\\\symbols\""))
         assertEquals(2, Regex("\\[\\[peer]]").findAll(config).count())
-        assertTrue(config.contains("routes = [\"192.168.10.0/24\", \"10.10.0.0/16\"]"))
+        val routes = Toml.parseToTomlTable(config)["routes"] as TomlArray
+        assertEquals(listOf("192.168.10.0/24", "10.10.0.0/16"), routes.map { it.content })
     }
 
     /** 验证默认路由被拒绝，改用合法路由后静态 IPv4 地址会写入 TOML。 */
@@ -44,7 +48,7 @@ class ConnectionProfileTest {
         assertEquals(ProfileValidationError.INVALID_ROUTE, profile.validationError())
 
         val validProfile = profile.copy(routes = "192.168.1.0/24")
-        assertTrue(validProfile.toEasyTierToml().contains("ipv4 = \"10.20.0.7\""))
+        assertTrue(validProfile.toEasyTierToml().contains("ipv4 = \"10.20.0.7/24\""))
     }
 
     /** 验证 peer 地址使用不支持的协议时，配置校验返回地址错误。 */
@@ -53,7 +57,7 @@ class ConnectionProfileTest {
         val profile =
             ConnectionProfile(
                 networkName = "office",
-                peerAddresses = "https://peer.example:11010",
+                peerAddresses = "ftp://peer.example:11010",
             )
 
         assertEquals(ProfileValidationError.INVALID_PEER_ADDRESS, profile.validationError())

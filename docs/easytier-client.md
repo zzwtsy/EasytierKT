@@ -1,58 +1,71 @@
 # EasyTier Android 客户端实现
 
-## 连接流程
+## 配置能力
 
-1. 首页调用 `VpnService.prepare()`。系统授权完成后，页面通过 `AndroidConnectionRepository` 发送包含配置 ID 的显式连接 Intent。
-2. `EasyTierVpnService` 立即启动前台服务并显示常驻通知，然后按配置 ID 从共享 Repository 读取最新参数。
-3. 服务生成 EasyTier v2.6.4 TOML，在后台线程调用 JNI 启动网络实例，并轮询运行信息直到分配虚拟 IPv4。
-4. 服务根据虚拟 IPv4、配置路由、peer 发布的 `proxy_cidrs` 和 Magic DNS 建立 TUN，再把文件描述符交给 EasyTier。
-5. 服务每两秒读取运行信息。peer 连接状态变化会更新页面；路由集合变化时重新建立 TUN 路由并更新 EasyTier 文件描述符。
-6. 应用或通知中的断开操作会先停止 EasyTier 实例，再关闭 TUN 并撤销前台通知。
+配置页使用分组表单，支持以下客户端配置；多份配置每次只运行一份，运行中编辑在下一次连接生效。
 
-首页分别展示 VPN TUN、EasyTier 内核和已连接 peer。内核已启动但 peer 数为零时仍显示内核状态，避免把服务已运行误报为组网成功。
+| 分组 | 已实现字段与行为 |
+| --- | --- |
+| 基础 | 独立显示名称、网络名、共享密钥、节点名称、多节点 URL、DHCP 或静态 IPv4 |
+| 双栈与监听 | IPv4 前缀 1–32、静态虚拟 IPv6 与前缀 1–128、监听及映射监听 URL；IPv6 底层传输可独立开关 |
+| 节点协议 | tcp、udp、wg、ws、wss、quic、http、https、txt、srv；监听支持前六种 |
+| 路由与出口 | 自动学习或手动业务路由、IPv4/IPv6 CIDR、IPv4 出口节点、出口模式的公网 IPv6 阻断或显式绕过 |
+| DNS | 系统 DNS、Magic DNS、自定义数字 DNS 地址与 Magic 域名 |
+| 应用 | 全部应用、仅选中应用、排除选中应用；支持按名称或包名搜索、移除已选包名 |
+| 传输 | 默认协议、P2P 模式、按需 P2P、等待 P2P、延迟优先、TCP/UDP/对称 NAT 打洞、STUN 与 IPv6 STUN、UPnP、设备绑定 |
+| 加密与性能 | 加密开关及算法、Zstd、MTU、多线程与线程数、实例接收限速、外部网络中继限速 |
+| 代理与中继 | KCP/QUIC 代理及输入开关、数据/RPC/KCP/QUIC 中继、外部网络 KCP/QUIC、中继白名单、私有模式、UDP 广播中继 |
+| 本地代理 | SOCKS5 数字监听地址及端口、多个 TCP/UDP 端口转发（目标为虚拟 IPv4） |
+| 安全身份 | 共享密钥或客户端凭据认证、安全握手、生成身份、导入私钥、派生公钥、节点公钥绑定 |
+| ACL | 开关、组声明及所属组、入站/出站/转发链、默认动作、规则名称/说明/优先级/开关/协议/动作、源与目标地址/端口/组、有状态匹配、每秒包数及突发包数 |
 
-## VPN 路由边界
+全部启用字段统一校验，返回可定位到稳定列表 ID 的问题。点击错误展开对应分组。所有原始文本由条目 ViewModel 的 TextFieldState 保留，校验和保存使用同一草稿编译器。非法文本计入未保存修改并阻止保存；关闭选项后的非法数值采用加载值或新模型默认值，重新开启恢复校验，删除条目清理其输入状态。ACL 同一链的优先级必须唯一，范围 0–65535，越大越先执行。ACL 源与目标地址在编码前统一转为 CIDR：裸地址使用 `/32` 或 `/128`，网段清除主机位（例如 `10.0.0.3/24` 编码为 `10.0.0.0/24`），无效条目阻止保存，避免内核丢弃条件后扩大规则匹配范围。端口转发、公钥绑定、组、链和规则有稳定 ID。
 
-- TUN MTU 为 1300。
-- 只加入用户配置的 IPv4 CIDR、EasyTier 运行信息中 peer 发布的 `proxy_cidrs`，以及 Magic DNS 使用的 `100.100.100.101/32`。
-- profile 校验拒绝前缀为 `/0` 的路由；运行时也会过滤默认路由。实现不添加 IPv4 或 IPv6 默认路由，也不建立 IPv6 地址。
-- 使用 `VpnService.Builder.addDisallowedApplication()` 排除 EasytierKT 自身，避免 EasyTier 的传输 socket 被再次送回 TUN。
-- Magic DNS 同时在 EasyTier `flags.accept_dns` 中开启，并向 Android VPN Builder 配置 `100.100.100.101` DNS。
+默认值：IPv4 DHCP、虚拟 IPv6 关闭、IPv6 底层传输开启、TCP/UDP 监听 `0.0.0.0:11010`、系统 DNS、全部应用、无出口、MTU 1300。IPv4 MTU 范围 400–1380，启用虚拟 IPv6 后为 1280–1380。
 
-路由变化通过新 `VpnService.Builder` 重新建立 TUN。Android 会替换旧 VPN 接口，因此切换期间可能有短暂丢包。
+## 连接与路由
 
-## 配置与密钥
+1. 首页通过 `VpnService.prepare()` 请求系统授权，随后发送包含配置 ID 的显式连接 Intent。
+2. 服务及时启动前台通知，应用级会话控制器接管配置预留，以类型化协议 DTO 生成 TOML 并在 IO 线程启动 JNI。
+3. 等待虚拟 IPv4 和自定义 DNS 所需路由发现；通过 `VpnPlanBuilder` 生成地址、路由、DNS、MTU 和应用范围。
+4. 建立 TUN，把文件描述符交给内核；两秒轮询运行信息，路由或地址变化时替换 TUN。
+5. 主动断开先撤销恢复记录，再停止内核、关闭 TUN、撤销通知，最后释放预留；内核停止失败允许重试且阻止新连接。系统回收进程后按恢复 ID 重新读取最新配置；重启设备不自动连接。
 
-每份 profile 支持网络名、可选网络密钥、一个或多个 peer URL、DHCP 或静态 IPv4、IPv4 CIDR 路由和 Magic DNS。peer URL 接受 `tcp`、`udp`、`ws`、`wss` 和 `quic` scheme。支持多份配置，每次运行一份；连接期间先断开才能切换。编辑运行配置不会立即改变当前会话，下次手动连接或系统恢复服务时生效。
+首页的 CONNECTED 表示 TUN 和内核运行，不能代表 peer 已连通。首页分别显示组件状态、peer 数量、虚拟 IPv4 和 IPv6。错误区分配置拒绝、地址超时、应用卸载、DNS 无路由和 TUN 建立失败。
 
-整个 v2 配置集合（配置、选中 ID、恢复 ID）使用 AES/GCM 加密后写入私有 SharedPreferences；AES-256 密钥保存在 Android Keystore。Android 备份与设备迁移规则排除 `easytier_profile.xml`，防止仅恢复密文而没有 Keystore 密钥。应用不会记录 TOML 或 profile 中的网络密钥，也不将完整配置写入导航参数或保存实例状态。旧单配置密文在新集合写入且读回验证后清理；迁移失败保留旧记录。
+路由规则：
 
-## Service 和权限
+- 始终保留本机虚拟子网和发现的节点主机路由，显式 `/32` 不再被内核改为 `/24`。IPv4 定向广播只匹配本机子网的广播地址，`/31` 和 `/32` 没有定向广播；IPv6 只对组播执行群发，`/128` 单播正常选择目标节点。
+- 自动模式采用 peer 发布的 IPv4 `proxy_cidrs`（启用静态 IPv6 后也采用 IPv6 网段），过滤 `/0`，用户 IPv4 路由作为补充；TOML 不写根 `routes`。
+- 手动模式替换学习到的业务路由，根 `routes` 显式写入数组（包括空数组），必要节点路由保留。
+- IPv6 业务路由要求静态虚拟 IPv6；本轮不提供公网 IPv6 租约。
+- 出口节点只能是远端虚拟 IPv4，启用后接管 `0.0.0.0/0`。远端必须已配置为出口服务器。
+- 出口模式默认把公网 IPv6 `::/0` 送入内核，没有 IPv6 出口时丢弃，防止绕过 IPv4 出口；用户可明确允许公网 IPv6 走底层网络。普通分流模式允许未被路由接管的 IPv6 走底层网络。
+- Magic DNS 使用 `100.100.100.101` 与其主机路由。自定义 DNS 必须存在虚拟子网、节点、业务网段或 IPv4 出口路由；IPv6 阻断默认路由不能充当 DNS 可达依据。启动时等待路由发现，超时后报错。存在路由仍不保证远端 DNS 服务实际在线。
+- EasyTier 自身始终不进入 VPN；仅选中应用模式使用 allowed API，其他模式使用 disallowed API，两类 API 不混用。已卸载的选中应用在建立 TUN 时报告错误。
 
-Manifest 声明 `INTERNET`、`ACCESS_NETWORK_STATE` 和前台服务权限。`EasyTierVpnService` 声明 `BIND_VPN_SERVICE`，由于 Android 系统需要绑定 VPN 服务，组件为 exported；签名级系统权限限制绑定方。应用向该 Service 发送的连接 Intent 都是显式 Intent。
+TUN 更新可能导致短暂丢包。分应用规则只控制选中应用流量，出口的 IPv6 策略同样仅对 VPN 覆盖的应用生效。
 
-Android 14 及以上使用 `systemExempted` 前台服务类型。连接由用户在前台点按触发。服务使用 `START_STICKY`，系统回收进程后会通过空 Intent 恢复，并根据恢复 ID 重新读取原配置的最新保存参数。恢复 ID 缺失或对应配置无效时停止，不能替换成其他选中配置。主动断开、授权撤销和启动失败会撤销恢复记录，并清理会话资源。未注册开机广播；设备重启后由用户手动连接。
+## 身份、存储与权限
 
-通知操作使用显式 Service 或 Activity PendingIntent，并设为 immutable。VPN 被系统撤销时，服务会停止内核实例并关闭 TUN。
+客户端凭据认证需要服务端预先授权对应公钥；生成身份本身不会获得入网权限。私钥导入文件是 **不超过 4 KiB 的 UTF-8 标准 Base64 32 字节私钥**，不是 TOML、管理员 `credential_file` 数据库或 PEM。取消文件选择不改草稿；导入失败保留原身份。原生内核执行 X25519 派生，保存前派生并持久化密钥对，保存失败重试保持同一身份。本地公钥只读，远端公钥绑定需要已有 peer URI 和安全握手；共享密钥模式关闭安全握手时，已有绑定会阻止保存，必须开启握手或删除绑定。凭据模式自动启用安全握手。内核先检查显式绑定，再验证共享密钥；即使网络共享密钥正确，错误的远端公钥也会拒绝握手。
 
-## JNI 与原生库
+`ProfileDocument` schema 4 和全部密钥在私有文件 `files/datastore/profiles_v4.bin` 中通过类型化 DataStore 与 Keystore AES-256/GCM 加密保存。编码显式保存默认值，二进制信封带固定 AAD，文件原子替换由 DataStore 负责。没有新文件时从空集合开始；不读取、兼容、迁移或删除旧版本配置，因此升级后需重新添加配置。新密文损坏或密钥丢失时报告读取错误并拒绝覆盖。备份与设备迁移排除 `datastore/` 及旧 `easytier_profile.xml`。密钥使用安全输入框；草稿只在 ViewModel 中保留到 Activity 重建，进程回收不恢复未保存密钥。
 
-JNI 接口类必须保持上游导出符号所要求的名称 `com.easytier.jni.EasyTierJNI`；对应 R8 keep 规则禁止混淆该类。EasyTier v2.6.4 需要以下两个共享库：
+数字地址与 CIDR 通过 IPAddress 统一校验；不执行 DNS，拒绝前导零 IPv4、zone ID、IPv4 映射 IPv6 和通配范围。IPv6 规范显示为压缩小写，接口保留主机位，网段清除主机位。TOML 使用 tomlkt 0.6.0 的编码器，ACL 编号显式映射，不依赖枚举 ordinal。JNI 运行信息使用固定协议 DTO，缺少必需前缀不会回退为 `/24`，内核明确失败不会当作尚未分配地址。
 
-- `libeasytier_android_jni.so`
-- `libeasytier_ffi.so`
+应用不记录完整 TOML、私钥或共享密钥，也不将其放入导航或保存实例状态。原生 TOML 和密钥错误使用固定文本，避免异常包含输入。权限包括网络、前台服务和 `QUERY_ALL_PACKAGES`（用于 VPN 的完整应用筛选）；私钥导入使用 SAF 的单文件临时读取授权，不申请存储权限。VPN 服务通过 `BIND_VPN_SERVICE` 允许系统绑定；通知 PendingIntent 为显式且 immutable。
 
-上游 commit 固定为 `8428a89d2dabc94c97d370ec607c6ca142473626`。`tools/build-easytier-android.sh` 使用 Rust stable、`cargo-ndk 4.1.2` 和 Android NDK `30.0.16248370`（与 CI 一致），为 arm64、32 位 ARM、x86 和 x86_64 构建。宿主机还需要 `protoc` 及标准 `.proto` 文件；脚本会在下载源码前检查这些依赖。脚本生成的库写入 `app/src/main/jniLibs/` 并被 Git 忽略。CI 在 Android 检查前构建这些库；本地构建前也必须运行脚本。
+## 原生补丁与构建
 
-构建依赖 GitHub 上游源码和 crates.io。当前 Windows 开发建议在 WSL2 中执行脚本。没有原生库时，Android APK 可以通过 Kotlin 编译，但运行连接会显示缺少原生库错误。
+上游固定为 EasyTier v2.6.4 commit `8428a89d2dabc94c97d370ec607c6ca142473626`。`tools/native-patches/android-profile.patch` 修复直接 TOML 加载的凭据身份、安全密钥派生及公私钥匹配、共享密钥不能绕过远端公钥绑定、错误脱敏、显式 `/32` 及双栈广播误判，并扩展 IPv6 运行信息和身份 JNI。
 
-## 已知范围
+`bash tools/build-easytier-android.sh` 保留上游检出干净，从 Git archive 创建独立构建副本，路径包含 commit 和补丁 SHA-256。每个 ABI 使用同一次 Cargo 构建统一 JNI 与 FFI 的依赖特性，再为 JNI 补充 FFI 链接；JNI 显式链接 FFI，生成 Android 所需的动态依赖，避免依赖共享库加载顺序。`EASYTIER_PREPARE_ONLY=1` 只准备源码，供 CI 缓存使用；源码位置记录在 `build/easytier-android-source-path.txt`。四 ABI 为 arm64-v8a、armeabi-v7a、x86、x86_64，API 24，cargo-ndk 4.1.2。生成库在 `app/src/main/jniLibs/`，不提交 Git。
 
-- 支持多配置新增、编辑、删除和选择，每次只运行一份；没有复制、导入导出、开机自启动、后台自动重连开关或连接历史。
-- 当前 TUN 配置仅支持 IPv4；不支持 IPv6 路由、exit node 或默认路由。
-- peer 状态和运行时发布路由通过两秒轮询获取。
-- VPN 授权与真实组网必须在设备或模拟器上手动验证；CI 只构建原生库并运行 Android Lint、JVM 单元测试和 APK 构建。
+`bash tools/test-easytier-config.sh` 运行宿主原生契约测试，直接断言 ConfigLoader 读取后的语义、实际 ACL 地址匹配和内存隧道节点的单播/出口/广播选择。CI 使用同一补丁构建流程、补丁隔离缓存和原生契约测试，再运行 Android 检查。
 
-## 第三方许可证
+## 本轮范围之外
 
-EasyTier v2.6.4 的仓库许可证为 LGPL-3.0（含上游许可证文本中的附加条款）。对应许可证副本和 GNU GPL-3.0 文本放在 `app/src/main/assets/licenses/`，会随应用打包。源码与构建脚本指向固定 commit，便于取得和重建对应版本。第三方声明见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。
+公网 IPv6 租约与 IPv6 Internet 出口、手机作为子网/出口服务器、VPN Portal、管理员凭据管理、多配置同时运行、完整 TOML 导入导出。真实跨设备组网、出口转发、ACL 流量过滤与公网 IPv6 防绕过仍需真实网络验收；单机配置解析和路由计划测试不能替代这些验证。
+
+EasyTier LGPL-3.0 许可证副本随应用打包，详情见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。

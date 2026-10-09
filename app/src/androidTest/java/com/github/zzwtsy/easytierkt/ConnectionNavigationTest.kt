@@ -1,6 +1,7 @@
 package com.github.zzwtsy.easytierkt
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasAnyAncestor
@@ -19,9 +20,12 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.github.zzwtsy.easytierkt.data.connection.ConnectionPhase
 import com.github.zzwtsy.easytierkt.data.connection.ConnectionStatus
+import com.github.zzwtsy.easytierkt.data.profile.PeerKey
+import com.github.zzwtsy.easytierkt.data.profile.SecurityOptions
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.ExternalResource
@@ -157,5 +161,140 @@ class ConnectionNavigationTest {
                 ?.profiles
                 ?.size,
         )
+    }
+
+    /** 高级 MTU 的非法草稿在 Activity 重建后仍显示，保存按钮持续禁用，修正后才可保存。 */
+    @Test
+    fun advancedNumericDraftSurvivesRecreation() {
+        composeRule.onNodeWithContentDescription("管理配置").performClick()
+        composeRule.onNodeWithContentDescription("编辑配置 公司").performClick()
+        composeRule.onNodeWithText("传输与性能 ▾").performScrollTo().performClick()
+        composeRule.onNodeWithText("MTU").performScrollTo().performTextReplacement("abc")
+        composeRule.onNodeWithText("保存配置").assertIsNotEnabled()
+        composeRule.activityRule.scenario.recreate()
+        composeRule.onNodeWithText("abc").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("保存配置").assertIsNotEnabled()
+        composeRule.onNodeWithText("MTU").performTextReplacement("1300")
+        composeRule.onNodeWithText("保存配置").performClick()
+        composeRule.onNodeWithText("网络配置").assertIsDisplayed()
+    }
+
+    /** 添加静态 IPv6 并保存后仓库保留地址和默认 /64，重新编辑可以看到同一双栈配置。 */
+    @Test
+    fun staticIpv6IsSavedAndRestoredInForm() {
+        composeRule.onNodeWithContentDescription("管理配置").performClick()
+        composeRule.onNodeWithContentDescription("编辑配置 公司").performClick()
+        composeRule.onNodeWithText("节点与双栈 ▾").performScrollTo().performClick()
+        composeRule.onNodeWithText("虚拟 IPv6 地址（留空关闭）").performScrollTo().performTextReplacement("fd00::2")
+        composeRule.onNodeWithText("保存配置").performClick()
+        composeRule.waitForIdle()
+        assertEquals(
+            "fd00::2",
+            application.store.document.profiles
+                .first { it.id == "a" }
+                .config.virtualIpv6,
+        )
+        composeRule.onNodeWithContentDescription("编辑配置 公司").performClick()
+        composeRule.onNodeWithText("节点与双栈 ▾").performScrollTo().performClick()
+        composeRule.onNodeWithText("fd00::2").performScrollTo().assertIsDisplayed()
+    }
+
+    /** 限速输入负数不能当作不限速保存；清空输入后才恢复不限速并允许保存。 */
+    @Test
+    fun negativeRateLimitIsNotConvertedToUnlimited() {
+        composeRule.onNodeWithContentDescription("管理配置").performClick()
+        composeRule.onNodeWithContentDescription("编辑配置 公司").performClick()
+        composeRule.onNodeWithText("传输与性能 ▾").performScrollTo().performClick()
+        composeRule.onNodeWithText("接收字节/秒（空为不限速）").performScrollTo().performTextReplacement("-1")
+        composeRule.onNodeWithText("保存配置").assertIsNotEnabled()
+        composeRule.onNodeWithText("接收字节/秒（空为不限速）").performTextReplacement("")
+        composeRule.onNodeWithText("保存配置").performClick()
+        composeRule.waitForIdle()
+        assertNull(
+            application.store.document.profiles
+                .first { it.id == "a" }
+                .config.transport.receiveBytesPerSecond,
+        )
+    }
+
+    /** 启用 ACL 添加链与规则后可保存；超范围优先级阻止保存，修正后条目及稳定 ID 完整持久化。 */
+    @Test
+    fun editsAclChainAndRuleWithValidatedPriority() {
+        composeRule.onNodeWithContentDescription("管理配置").performClick()
+        composeRule.onNodeWithContentDescription("编辑配置 公司").performClick()
+        composeRule.onNodeWithText("ACL ▾").performScrollTo().performClick()
+        composeRule.onNodeWithText("启用 ACL").performScrollTo().performClick()
+        composeRule.onNodeWithText("添加链").performScrollTo().performClick()
+        composeRule.onNodeWithText("链名称").performScrollTo().performTextReplacement("入站规则")
+        composeRule.onNodeWithText("添加规则").performScrollTo().performClick()
+        composeRule.onNodeWithText("规则名称").performScrollTo().performTextReplacement("允许组网")
+        composeRule.onNodeWithText("优先级（越大越先）").performScrollTo().performTextReplacement("70000")
+        composeRule.onNodeWithText("保存配置").assertIsNotEnabled()
+        composeRule.onNodeWithText("优先级（越大越先）").performTextReplacement("100")
+        composeRule.onNodeWithText("保存配置").performClick()
+        composeRule.waitForIdle()
+        val acl =
+            application.store.document.profiles
+                .first { it.id == "a" }
+                .config.acl
+        assertEquals("入站规则", acl.chains.single().name)
+        assertEquals(
+            "允许组网",
+            acl.chains
+                .single()
+                .rules
+                .single()
+                .name,
+        )
+        assertEquals(
+            100,
+            acl.chains
+                .single()
+                .rules
+                .single()
+                .priority,
+        )
+    }
+
+    /** 已有公钥绑定却关闭安全握手时禁用保存；开启后可保存，关闭后再次禁用，最终保存完整安全配置。 */
+    @Test
+    fun peerPinCannotBeSavedWithoutSecureHandshake() {
+        val saved =
+            application.store.document.profiles
+                .first { it.id == "a" }
+        val key = android.util.Base64.encodeToString(ByteArray(32) { 7 }, android.util.Base64.NO_WRAP)
+        runBlocking {
+            profiles.update(
+                "a",
+                saved.displayName,
+                saved.config.copy(
+                    peerAddresses = "tcp://peer.example:11010",
+                    security =
+                        SecurityOptions(
+                            secureMode = true,
+                            peerKeys = listOf(PeerKey(uri = "tcp://peer.example:11010", publicKey = key)),
+                        ),
+                ),
+            )
+        }
+        composeRule.onNodeWithContentDescription("管理配置").performClick()
+        composeRule.onNodeWithContentDescription("编辑配置 公司").performClick()
+        composeRule.onNodeWithText("认证与安全身份 ▾").performScrollTo().performClick()
+        composeRule.onNodeWithText("启用安全握手").performScrollTo().performClick()
+        composeRule.onNodeWithText("保存配置").assertIsNotEnabled()
+        composeRule.onNodeWithText("启用安全握手").performClick()
+        composeRule.onNodeWithText("保存配置").assertIsEnabled()
+        composeRule.onNodeWithText("启用安全握手").performClick()
+        composeRule.onNodeWithText("保存配置").assertIsNotEnabled()
+        composeRule.onNodeWithText("启用安全握手").performClick()
+        composeRule.onNodeWithText("保存配置").performClick()
+        composeRule.onNodeWithText("网络配置").assertIsDisplayed()
+        val security =
+            application.store.document.profiles
+                .first { it.id == "a" }
+                .config.security
+        assertTrue(security.secureMode)
+        assertEquals(key, security.peerKeys.single().publicKey)
+        assertTrue(security.privateKey.isNotBlank())
     }
 }

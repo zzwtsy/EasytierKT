@@ -6,118 +6,45 @@ import androidx.core.content.ContextCompat
 import com.github.zzwtsy.easytierkt.data.profile.ConnectionProfileRepository
 import com.github.zzwtsy.easytierkt.data.profile.ProfileActionError
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 
-internal object ConnectionRuntime {
-    private val mutableStatus = MutableStateFlow(ConnectionStatus())
-    val status = mutableStatus.asStateFlow()
-
-    fun update(status: ConnectionStatus) {
-        mutableStatus.value = status
-    }
-}
-
-/** 应用级队列保证快速连接、取消和再次连接不会交错修改预留记录。 */
+/** UI 控制适配器；状态和业务命令统一委托给应用级会话控制器。 */
 class AndroidConnectionRepository(
     context: Context,
-    private val profiles: ConnectionProfileRepository,
+    profiles: ConnectionProfileRepository,
     scope: CoroutineScope,
 ) : ConnectionRepository {
-    private val appContext = context.applicationContext
-    private val commands = Channel<Command>(Channel.UNLIMITED)
-    override val status = ConnectionRuntime.status
+    internal val controller = VpnSessionController(profiles, scope, AndroidVpnServiceLauncher(context.applicationContext))
+    override val status = controller.status
 
-    init {
-        scope.launch {
-            for (command in commands) {
-                when (command) {
-                    is Command.Connect -> start(command.id)
-                    Command.Disconnect -> stop()
-                }
-            }
-        }
-    }
+    override fun connect(profileId: String) = controller.connect(profileId)
 
-    override fun connect(profileId: String) {
-        commands.trySend(Command.Connect(profileId))
-    }
+    override fun disconnect() = controller.disconnect()
 
-    override fun disconnect() {
-        commands.trySend(Command.Disconnect)
-    }
+    override fun reportVpnPermissionDenied() = controller.permissionDenied()
+}
 
-    override fun reportVpnPermissionDenied() {
-        if (!status.value.phase.isBusy) {
-            ConnectionRuntime.update(ConnectionStatus(phase = ConnectionPhase.ERROR, error = ConnectionError.VPN_PERMISSION_DENIED))
-        }
-    }
-
-    private suspend fun start(id: String) {
-        if (status.value.phase.isBusy) return
-        val result = profiles.reserveSession(id)
-        if (result.error == ProfileActionError.CONNECTION_BUSY) return
-        if (result.error != null) {
-            ConnectionRuntime.update(
-                ConnectionStatus(phase = ConnectionPhase.ERROR, profileId = id, error = result.error.connectionError()),
-            )
-            return
-        }
-        val profile = requireNotNull(result.profile)
-        ConnectionRuntime.update(
-            ConnectionStatus(phase = ConnectionPhase.STARTING, profileId = profile.id, profileName = profile.displayName),
-        )
-        val intent =
-            Intent(appContext, EasyTierVpnService::class.java)
+internal class AndroidVpnServiceLauncher(
+    private val context: Context,
+) : VpnServiceLauncher {
+    override fun connect(
+        id: String,
+        token: Long,
+    ) {
+        ContextCompat.startForegroundService(
+            context,
+            Intent(context, EasyTierVpnService::class.java)
                 .setAction(EasyTierVpnService.ACTION_CONNECT)
                 .putExtra(EasyTierVpnService.EXTRA_PROFILE_ID, id)
-        try {
-            ContextCompat.startForegroundService(appContext, intent)
-        } catch (_: SecurityException) {
-            startFailed()
-        } catch (_: IllegalStateException) {
-            startFailed()
-        }
-    }
-
-    private suspend fun startFailed() {
-        val error = profiles.clearResume().error
-        profiles.releaseSession()
-        ConnectionRuntime.update(
-            ConnectionStatus(
-                phase = ConnectionPhase.ERROR,
-                error = error?.connectionError() ?: ConnectionError.START_FAILED,
-            ),
+                .putExtra(EasyTierVpnService.EXTRA_SESSION_TOKEN, token),
         )
     }
 
-    private suspend fun stop() {
-        if (!status.value.phase.isBusy) return
-        val previous = status.value
-        ConnectionRuntime.update(previous.copy(phase = ConnectionPhase.STOPPING, error = null))
-        val intent = Intent(appContext, EasyTierVpnService::class.java).setAction(EasyTierVpnService.ACTION_DISCONNECT)
-        try {
-            appContext.startService(intent)
-        } catch (_: SecurityException) {
-            stopFailed(previous)
-        } catch (_: IllegalStateException) {
-            stopFailed(previous)
-        }
-    }
-
-    private fun stopFailed(previous: ConnectionStatus) {
-        // 请求未送达时不能假定服务已停止，更不能释放运行配置允许启动另一个网络。
-        ConnectionRuntime.update(previous.copy(error = ConnectionError.STOP_FAILED))
-    }
-
-    private sealed interface Command {
-        data class Connect(
-            val id: String,
-        ) : Command
-
-        data object Disconnect : Command
+    override fun disconnect(token: Long) {
+        context.startService(
+            Intent(context, EasyTierVpnService::class.java)
+                .setAction(EasyTierVpnService.ACTION_DISCONNECT)
+                .putExtra(EasyTierVpnService.EXTRA_SESSION_TOKEN, token),
+        )
     }
 }
 

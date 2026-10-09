@@ -12,11 +12,15 @@ navigation3 = "1.2.0"
 kotlinxSerialization = "1.9.0"
 kotlinxCoroutines = "1.11.0"
 ktlintGradle = "14.2.0"
-
 datastore = "1.2.1"
+ipaddress = "5.6.2"
+tomlkt = "0.6.0"
 
 [libraries]
 androidx-datastore = { group = "androidx.datastore", name = "datastore", version.ref = "datastore" }
+ipaddress = { group = "com.github.seancfoley", name = "ipaddress", version.ref = "ipaddress" }
+tomlkt = { group = "dev.eav.tomlkt", name = "tomlkt-jvm", version.ref = "tomlkt" }
+androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

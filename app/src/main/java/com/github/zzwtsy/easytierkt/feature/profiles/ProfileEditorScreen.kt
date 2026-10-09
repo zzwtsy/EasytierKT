@@ -41,7 +41,7 @@ import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,8 +49,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.github.zzwtsy.easytierkt.R
@@ -73,15 +71,21 @@ internal fun ProfileEditorScreen(
     uiState: ProfileEditorUiState,
     onBack: () -> Unit,
     onProfileChange: (ConnectionProfile) -> Unit,
-    onNameChange: (String) -> Unit,
     onRetry: () -> Unit,
     onSave: () -> Unit,
     modifier: Modifier = Modifier,
+    draft: ProfileDraft? = null,
+    onGenerateIdentity: () -> Unit = {},
+    onImportIdentity: () -> Unit = {},
+    applications: List<com.github.zzwtsy.easytierkt.data.profile.InstalledApplication> = emptyList(),
+    onRetryApplications: () -> Unit = {},
 ) {
+    val fields = draft ?: androidx.compose.runtime.remember { ProfileDraft(uiState.profile, uiState.displayName) }
     val profile = uiState.profile
     val validationError = uiState.validationError
     val formEnabled =
         !uiState.isSaving &&
+            !uiState.identityBusy &&
             uiState.error != ProfileActionError.READ_FAILED &&
             uiState.error != ProfileActionError.NOT_FOUND
 
@@ -109,7 +113,9 @@ internal fun ProfileEditorScreen(
                 enabled =
                     !uiState.isSaving &&
                         !uiState.isLoading &&
-                        validationError == null &&
+                        profile.validationError() == null &&
+                        uiState.invalidNumbers.isEmpty() &&
+                        !uiState.identityBusy &&
                         isProfileNameValid(uiState.displayName) &&
                         uiState.error != ProfileActionError.READ_FAILED &&
                         uiState.error != ProfileActionError.NOT_FOUND,
@@ -175,15 +181,14 @@ internal fun ProfileEditorScreen(
                         }
                     }
                     OutlinedTextField(
-                        value = uiState.displayName,
-                        onValueChange = onNameChange,
+                        state = fields.state("displayName"),
                         modifier = Modifier.fillMaxWidth(),
                         enabled =
                             !uiState.isSaving &&
                                 uiState.error != ProfileActionError.READ_FAILED &&
                                 uiState.error != ProfileActionError.NOT_FOUND,
                         label = { Text(stringResource(R.string.profile_name)) },
-                        singleLine = true,
+                        lineLimits = androidx.compose.foundation.text.input.TextFieldLineLimits.SingleLine,
                         isError = uiState.nameError,
                         supportingText =
                             if (uiState.nameError) {
@@ -195,20 +200,18 @@ internal fun ProfileEditorScreen(
 
                     SettingsGroup(title = stringResource(R.string.settings_section_credentials)) {
                         OutlinedTextField(
-                            value = profile.networkName,
+                            state = fields.state("networkName"),
                             enabled = formEnabled,
-                            onValueChange = { onProfileChange(profile.copy(networkName = it)) },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text(stringResource(R.string.settings_network_name)) },
                             supportingText =
                                 validationSupportingText(validationError, ProfileValidationError.INVALID_NETWORK_NAME),
                             isError = validationError == ProfileValidationError.INVALID_NETWORK_NAME,
-                            singleLine = true,
+                            lineLimits = androidx.compose.foundation.text.input.TextFieldLineLimits.SingleLine,
                         )
                         SecretTextField(
-                            value = profile.networkSecret,
-                            enabled = formEnabled,
-                            onValueChange = { onProfileChange(profile.copy(networkSecret = it)) },
+                            state = fields.state("networkSecret"),
+                            enabled = formEnabled && !profile.credentialMode,
                             isError = validationError == ProfileValidationError.INVALID_NETWORK_SECRET,
                             supportingText =
                                 validationSupportingText(validationError, ProfileValidationError.INVALID_NETWORK_SECRET),
@@ -217,9 +220,8 @@ internal fun ProfileEditorScreen(
 
                     SettingsGroup(title = stringResource(R.string.settings_section_network)) {
                         OutlinedTextField(
-                            value = profile.peerAddresses,
+                            state = fields.state("peerAddresses"),
                             enabled = formEnabled,
-                            onValueChange = { onProfileChange(profile.copy(peerAddresses = it)) },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text(stringResource(R.string.settings_peers)) },
                             supportingText =
@@ -228,8 +230,11 @@ internal fun ProfileEditorScreen(
                                 },
                             isError = validationError == ProfileValidationError.INVALID_PEER_ADDRESS,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                            minLines = 2,
-                            maxLines = 5,
+                            lineLimits =
+                                androidx.compose.foundation.text.input.TextFieldLineLimits.MultiLine(
+                                    minHeightInLines = 2,
+                                    maxHeightInLines = 5,
+                                ),
                         )
                         SettingSwitch(
                             label = stringResource(R.string.settings_use_dhcp),
@@ -239,9 +244,8 @@ internal fun ProfileEditorScreen(
                         )
                         AnimatedVisibility(visible = !profile.useDhcp) {
                             OutlinedTextField(
-                                value = profile.ipv4Address,
+                                state = fields.state("ipv4Address"),
                                 enabled = formEnabled,
-                                onValueChange = { onProfileChange(profile.copy(ipv4Address = it)) },
                                 modifier = Modifier.fillMaxWidth(),
                                 label = { Text(stringResource(R.string.settings_static_ipv4)) },
                                 supportingText =
@@ -251,13 +255,12 @@ internal fun ProfileEditorScreen(
                                     ),
                                 isError = validationError == ProfileValidationError.INVALID_STATIC_ADDRESS,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
+                                lineLimits = androidx.compose.foundation.text.input.TextFieldLineLimits.SingleLine,
                             )
                         }
                         OutlinedTextField(
-                            value = profile.routes,
+                            state = fields.state("routes"),
                             enabled = formEnabled,
-                            onValueChange = { onProfileChange(profile.copy(routes = it)) },
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text(stringResource(R.string.settings_routes)) },
                             supportingText =
@@ -266,19 +269,33 @@ internal fun ProfileEditorScreen(
                                 },
                             isError = validationError == ProfileValidationError.INVALID_ROUTE,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                            minLines = 2,
-                            maxLines = 5,
+                            lineLimits =
+                                androidx.compose.foundation.text.input.TextFieldLineLimits.MultiLine(
+                                    minHeightInLines = 2,
+                                    maxHeightInLines = 5,
+                                ),
                         )
                     }
 
-                    SettingsGroup(title = stringResource(R.string.settings_section_misc)) {
-                        SettingSwitch(
-                            label = stringResource(R.string.settings_magic_dns),
-                            checked = profile.enableMagicDns,
-                            enabled = formEnabled,
-                            onCheckedChange = { onProfileChange(profile.copy(enableMagicDns = it)) },
-                        )
+                    if (uiState.applicationsLoading) Text(stringResource(R.string.profile_applications_loading))
+                    if (uiState.applicationsFailed) {
+                        androidx.compose.material3.TextButton(onRetryApplications) {
+                            Text(stringResource(R.string.profile_applications_retry))
+                        }
                     }
+                    uiState.identityError?.let { Text(stringResource(it.messageResource()), color = MaterialTheme.colorScheme.error) }
+                    AdvancedProfileForm(
+                        profile,
+                        formEnabled,
+                        fields,
+                        uiState.invalidNumbers,
+                        onProfileChange,
+                        onGenerateIdentity,
+                        onImportIdentity,
+                        uiState.identityBusy,
+                        uiState.identityError,
+                        applications,
+                    )
 
                     Text(
                         text =
@@ -367,37 +384,37 @@ private fun SettingsGroup(
     }
 }
 
-/** 网络密钥输入框，trailing 图标切换明文/掩码显示。 */
+/** 密钥使用安全输入 API，避免明文复制与草稿自动持久化。 */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SecretTextField(
-    value: String,
-    onValueChange: (String) -> Unit,
+    state: androidx.compose.foundation.text.input.TextFieldState,
     isError: Boolean,
     enabled: Boolean,
     supportingText: (@Composable () -> Unit)?,
 ) {
-    var secretVisible by rememberSaveable { mutableStateOf(false) }
-    OutlinedTextField(
-        value = value,
+    var visible by remember { mutableStateOf(false) }
+    androidx.compose.material3.OutlinedSecureTextField(
+        textObfuscationMode =
+            if (visible) {
+                androidx.compose.foundation.text.input.TextObfuscationMode.Visible
+            } else {
+                androidx.compose.foundation.text.input.TextObfuscationMode.RevealLastTyped
+            },
+        trailingIcon = {
+            IconButton(onClick = { visible = !visible }) {
+                Icon(
+                    imageVector = if (visible) VisibilityOffIcon else VisibilityIcon,
+                    contentDescription = stringResource(if (visible) R.string.settings_hide_secret else R.string.settings_show_secret),
+                )
+            }
+        },
+        state = state,
         enabled = enabled,
-        onValueChange = onValueChange,
         modifier = Modifier.fillMaxWidth(),
         label = { Text(stringResource(R.string.settings_network_secret)) },
         supportingText = supportingText,
         isError = isError,
-        visualTransformation = if (secretVisible) VisualTransformation.None else PasswordVisualTransformation(),
-        trailingIcon = {
-            IconButton(onClick = { secretVisible = !secretVisible }) {
-                Icon(
-                    imageVector = if (secretVisible) VisibilityOffIcon else VisibilityIcon,
-                    contentDescription =
-                        stringResource(
-                            if (secretVisible) R.string.settings_hide_secret else R.string.settings_show_secret,
-                        ),
-                )
-            }
-        },
-        singleLine = true,
     )
 }
 
@@ -446,6 +463,7 @@ private fun validationMessage(error: ProfileValidationError): Int =
         ProfileValidationError.INVALID_NETWORK_SECRET -> R.string.error_invalid_network_secret
         ProfileValidationError.INVALID_STATIC_ADDRESS -> R.string.error_invalid_static_address
         ProfileValidationError.INVALID_PEER_ADDRESS -> R.string.error_invalid_peer_address
+        ProfileValidationError.INVALID_ADVANCED -> R.string.error_profile_invalid
         ProfileValidationError.INVALID_ROUTE -> R.string.error_invalid_route
     }
 
@@ -465,7 +483,6 @@ private fun ProfileEditorScreenPreview() {
             onBack = {},
             onProfileChange = {},
             onSave = {},
-            onNameChange = {},
             onRetry = {},
         )
     }
@@ -485,7 +502,6 @@ private fun ProfileEditorScreenErrorPreview() {
             onBack = {},
             onProfileChange = {},
             onSave = {},
-            onNameChange = {},
             onRetry = {},
         )
     }

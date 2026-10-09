@@ -17,6 +17,11 @@ enum class ConnectionError {
     PROFILE_NOT_FOUND,
     PROFILE_WRITE_FAILED,
     NATIVE_LIBRARY_UNAVAILABLE,
+    CONFIG_REJECTED,
+    ADDRESS_TIMEOUT,
+    APPLICATION_UNAVAILABLE,
+    DNS_UNREACHABLE,
+    TUN_FAILED,
     START_FAILED,
     STOP_FAILED,
 }
@@ -33,6 +38,7 @@ data class ConnectionStatus(
     val vpnServiceRunning: Boolean = false,
     val kernelRunning: Boolean = false,
     val virtualIpv4: String? = null,
+    val virtualIpv6: String? = null,
     val peerCount: Int? = null,
     val error: ConnectionError? = null,
     /** 进入 CONNECTED 的时刻（epoch 毫秒），用于展示连接时长；非 CONNECTED 阶段为 null。 */

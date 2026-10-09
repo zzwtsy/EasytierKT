@@ -20,6 +20,8 @@ class AppContainer(
     val profileRepository: ConnectionProfileRepository,
     val connectionRepository: ConnectionRepository,
 ) {
+    internal val sessionController get() = (connectionRepository as? AndroidConnectionRepository)?.controller
+
     companion object {
         fun create(context: Context): AppContainer {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)

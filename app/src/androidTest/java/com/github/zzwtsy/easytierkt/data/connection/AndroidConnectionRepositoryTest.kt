@@ -37,7 +37,6 @@ class AndroidConnectionRepositoryTest {
 
     @Before
     fun prepare() {
-        ConnectionRuntime.update(ConnectionStatus())
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         context = RecordingContext(ApplicationProvider.getApplicationContext())
         store =
@@ -59,7 +58,6 @@ class AndroidConnectionRepositoryTest {
     @After
     fun cleanup() {
         scope.cancel()
-        ConnectionRuntime.update(ConnectionStatus())
     }
 
     /** 连续请求同一配置三次时，仅发送一个包含原 ID 的启动 Intent，并持有配置预留。 */
@@ -111,11 +109,10 @@ class AndroidConnectionRepositoryTest {
     fun rejectedStopDoesNotUnlockPossiblyRunningSession() {
         repository.connect("a")
         await { context.started.size == 1 }
-        ConnectionRuntime.update(repository.status.value.copy(phase = ConnectionPhase.CONNECTED))
         context.rejectStop = true
         repository.disconnect()
         await { repository.status.value.error == ConnectionError.STOP_FAILED }
-        assertEquals(ConnectionPhase.CONNECTED, repository.status.value.phase)
+        assertEquals(ConnectionPhase.STARTING, repository.status.value.phase)
         assertEquals("a", profiles.state.value.activeProfileId)
         assertEquals("a", store.document.resumeProfileId)
         assertEquals(ProfileActionError.CONNECTION_BUSY, runBlocking { profiles.select("a") }.error)
